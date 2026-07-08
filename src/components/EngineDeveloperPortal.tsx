@@ -116,7 +116,7 @@ export const EngineDeveloperPortal: React.FC = () => {
       await delay(100);
       const engine = new ChessEngine({ maxDepth: 2, personality: 'positional', evalMode: 'traditional' });
       const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
-      const res = engine.search(fen, 0.5);
+      const res = await engine.search(fen, 0.5);
       if (res && res.bestMove && typeof res.score === 'number' && !isNaN(res.score)) {
         updated[2] = {
           name: 'Alpha-Beta Bounds & Search Depth Consistency',

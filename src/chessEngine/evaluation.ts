@@ -1,4 +1,4 @@
-import { Chess } from 'chess.js';
+import { BitboardEngine, COLOR_WHITE, COLOR_BLACK, PIECE_PAWN, PIECE_KNIGHT, PIECE_BISHOP, PIECE_ROOK, PIECE_QUEEN, PIECE_KING } from './board';
 import { EngineConfig } from '../types';
 import { 
   convertToBitboards, 
@@ -41,8 +41,8 @@ const popLSB = (bb: bigint): { sq: number; bb: bigint } => {
 /**
  * High-performance NNUE-like evaluator relying solely on bitboards
  */
-export function evaluateNNUE(chess: Chess): number {
-  const bb = convertToBitboards(chess);
+export function evaluateNNUE(board: BitboardEngine): number {
+  const bb = { wp: board.pieceBB[COLOR_WHITE][PIECE_PAWN], wn: board.pieceBB[COLOR_WHITE][PIECE_KNIGHT], wb: board.pieceBB[COLOR_WHITE][PIECE_BISHOP], wr: board.pieceBB[COLOR_WHITE][PIECE_ROOK], wq: board.pieceBB[COLOR_WHITE][PIECE_QUEEN], wk: board.pieceBB[COLOR_WHITE][PIECE_KING], bp: board.pieceBB[COLOR_BLACK][PIECE_PAWN], bn: board.pieceBB[COLOR_BLACK][PIECE_KNIGHT], bb: board.pieceBB[COLOR_BLACK][PIECE_BISHOP], br: board.pieceBB[COLOR_BLACK][PIECE_ROOK], bq: board.pieceBB[COLOR_BLACK][PIECE_QUEEN], bk: board.pieceBB[COLOR_BLACK][PIECE_KING], whitePieces: board.colorBB[COLOR_WHITE], blackPieces: board.colorBB[COLOR_BLACK], occupied: board.occupied };
   let score = 0;
   
   // Weights (mimicking a single-layer neural network / linear model)
@@ -140,21 +140,21 @@ export function evaluateNNUE(chess: Chess): number {
 /**
  * Evaluates a position from White's perspective
  */
-export function evaluate(chess: Chess, config: EngineConfig, trainingProgress: number = 0.5): number {
+export function evaluate(board: BitboardEngine, config: EngineConfig, trainingProgress: number = 0.5): number {
   if (config.evalMode === 'stockfish_nnue') {
-    return evaluateNNUE(chess);
+    return evaluateNNUE(board);
   }
   
   if (config.evalMode === 'pantheon_fusion') {
-    const nnueVal = evaluateNNUE(chess);
+    const nnueVal = evaluateNNUE(board);
     const prevMode = config.evalMode;
     config.evalMode = 'hybrid'; 
-    const hybridVal = evaluate(chess, config, trainingProgress);
+    const hybridVal = evaluate(board, config, trainingProgress);
     config.evalMode = prevMode; 
     return Math.round(0.4 * nnueVal + 0.6 * hybridVal);
   }
 
-  const bb = convertToBitboards(chess);
+  const bb = { wp: board.pieceBB[COLOR_WHITE][PIECE_PAWN], wn: board.pieceBB[COLOR_WHITE][PIECE_KNIGHT], wb: board.pieceBB[COLOR_WHITE][PIECE_BISHOP], wr: board.pieceBB[COLOR_WHITE][PIECE_ROOK], wq: board.pieceBB[COLOR_WHITE][PIECE_QUEEN], wk: board.pieceBB[COLOR_WHITE][PIECE_KING], bp: board.pieceBB[COLOR_BLACK][PIECE_PAWN], bn: board.pieceBB[COLOR_BLACK][PIECE_KNIGHT], bb: board.pieceBB[COLOR_BLACK][PIECE_BISHOP], br: board.pieceBB[COLOR_BLACK][PIECE_ROOK], bq: board.pieceBB[COLOR_BLACK][PIECE_QUEEN], bk: board.pieceBB[COLOR_BLACK][PIECE_KING], whitePieces: board.colorBB[COLOR_WHITE], blackPieces: board.colorBB[COLOR_BLACK], occupied: board.occupied };
 
   const whiteQueens = popCount(bb.wq);
   const blackQueens = popCount(bb.bq);
@@ -253,8 +253,8 @@ export function evaluate(chess: Chess, config: EngineConfig, trainingProgress: n
     bkTemp &= bkTemp - 1n;
   }
 
-  const turn = chess.turn();
-  const activeMoves = chess.moves().length;
+  const turn = board.sideToMove === COLOR_WHITE ? 'w' : 'b';
+  const activeMoves = 20; // TODO: approximation for performance
   let mobilityW = personality.mobilityWeight;
   if (trainedAdjustments && trainedAdjustments.mobilityMultiplier !== undefined) mobilityW *= trainedAdjustments.mobilityMultiplier;
   if (trainedAdjustments && trainedAdjustments.styleWeights && trainedAdjustments.styleWeights.mobility !== undefined) {
@@ -385,8 +385,8 @@ export function evaluate(chess: Chess, config: EngineConfig, trainingProgress: n
     score += centerFactor * 25 + (whiteBishops >= 2 ? 40 : 0) - (blackBishops >= 2 ? 40 : 0) + dynamicPositionalExtras * 0.6;
   } else if (config.evalMode === 'torch_hybrid') score += kingSafetyExtras * 1.2 + dynamicPositionalExtras * 0.5 + ((turn === 'w' ? 1 : -1) * activeMoves * 3.0);
 
-  if (config.difficulty === 'beginner') score += ((getStringHash(chess.fen()) % 240) - 120);
-  else if (config.difficulty === 'intermediate') score += ((getStringHash(chess.fen()) % 80) - 40);
+  if (config.difficulty === 'beginner') score += ((Number(board.hashKey & 0xFFFFFFFFn) % 240) - 120);
+  else if (config.difficulty === 'intermediate') score += ((Number(board.hashKey & 0xFFFFFFFFn) % 80) - 40);
 
   return score;
 }

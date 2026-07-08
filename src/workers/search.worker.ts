@@ -12,7 +12,7 @@ self.onmessage = async (e: MessageEvent) => {
   // For now, assume engine constructor or a method handles it.
   
   // Perform the search
-  const result = engine.search(fen, trainingProgress);
+  const result = await engine.search(fen, trainingProgress);
   
   self.postMessage(result);
 };

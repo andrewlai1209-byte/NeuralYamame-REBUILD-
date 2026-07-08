@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Chess } from 'chess.js';
+import { Chess } from "chess.js";
+import { BitboardEngine } from "./chessEngine/board";
 import { EngineConfig, EnginePersonality, EnginePersonalityId } from './types';
 import { db } from './lib/firebase';
 import { doc, getDoc, updateDoc, increment, setDoc } from 'firebase/firestore';
@@ -44,21 +45,23 @@ export class ChessEngine {
   /**
    * Evaluate a position from White's perspective
    */
-  public evaluate(chess: Chess, trainingProgress: number = 0.5): number {
-    return evaluate(chess, this.config, trainingProgress);
+  public evaluate(board: BitboardEngine, trainingProgress: number = 0.5): number {
+    return evaluate(board, this.config, trainingProgress);
   }
 
   /**
    * Fast NNUE-like heuristic evaluator
    */
   public evaluateNNUE(chess: Chess): number {
-    return evaluateNNUE(chess);
+    const board = new BitboardEngine();
+    board.parseFen(chess.fen());
+    return evaluateNNUE(board);
   }
 
   /**
    * Search for the absolute best move in the position
    */
-  public search(fen: string, trainingProgress: number = 0.5, moveHistory?: string[]): {
+  public async search(fen: string, trainingProgress: number = 0.5, moveHistory?: string[]): Promise<{
     bestMove: any;
     score: number;
     depth: number;
@@ -69,7 +72,7 @@ export class ChessEngine {
     leezaMctsNodes?: any[];
     leezaValueHead?: { whiteWin: number; draw: number; blackWin: number };
     policyMap?: Record<string, number>;
-  } {
+  }> {
     const chess = new Chess(fen);
 
     // 1. Opening Book Integration
@@ -149,10 +152,10 @@ export class ChessEngine {
     // Enrich bestMove with full Chess.js properties (from, to, piece, etc.)
     if (result.bestMove) {
       const tempChess = new Chess(fen);
-      const san = typeof result.bestMove === 'string' ? result.bestMove : result.bestMove.san;
-      if (san) {
+      const moveObj = result.bestMove;
+      if (moveObj) {
         try {
-          const parsedMove = tempChess.move(san);
+          const parsedMove = tempChess.move(moveObj.san || moveObj);
           if (parsedMove) {
             result.bestMove = {
               san: parsedMove.san,

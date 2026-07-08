@@ -409,13 +409,19 @@ export const GameArena: React.FC = () => {
     
     setIsEngineThinking(true);
     
-    // Run engine in a brief timeout to let player move render and prevent frame blocks
-    setTimeout(() => {
+    // Run engine using Web Worker to completely prevent UI blocking
+    const searchWorker = new Worker(new URL('../workers/search.worker.ts', import.meta.url));
+    searchWorker.postMessage({
+      fen: currentChess.fen(),
+      config: config,
+      trainingProgress: 0.7,
+      history: currentChess.history()
+    });
+
+    searchWorker.onmessage = (e) => {
+      const searchResult = e.data;
+      searchWorker.terminate();
       try {
-        const engineInstance = new ChessEngine(config);
-        // Pass search history to activate the Opening Book database
-        const searchResult = engineInstance.search(currentChess.fen(), 0.7, currentChess.history());
-        
         if (searchResult.bestMove) {
           currentChess.move(searchResult.bestMove);
           
@@ -449,7 +455,12 @@ export const GameArena: React.FC = () => {
       } finally {
         setIsEngineThinking(false);
       }
-    }, 350);
+    };
+    searchWorker.onerror = (e) => {
+      console.error("Worker error:", e);
+      searchWorker.terminate();
+      setIsEngineThinking(false);
+    };
   };
 
   // Handle player move

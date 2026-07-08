@@ -1,53 +1,57 @@
-/**
- * Transposition Table entry representing alpha-beta search bounds caching
- */
 export interface TTEntry {
+  key: bigint;
   depth: number;
   score: number;
-  flag: 'EXACT' | 'ALPHA' | 'BETA';
-  bestMove: string;
+  flag: number; // 0 = EXACT, 1 = ALPHA, 2 = BETA
+  bestMove: any;
 }
 
-/**
- * Transposition Table for caching chess search calculations across evaluations
- */
 export class TranspositionTable {
-  private table: Map<string, TTEntry>;
+  private entries: (TTEntry | null)[];
   private maxEntries: number;
 
-  constructor(maxEntries: number = 100000) {
-    this.table = new Map();
-    this.maxEntries = maxEntries;
-  }
-
-  /**
-   * Retrieves a cached search node
-   */
-  public get(key: string): TTEntry | undefined {
-    return this.table.get(key);
-  }
-
-  /**
-   * Caches a search node, checking for table bounds limit to prevent memory leaks
-   */
-  public set(key: string, entry: TTEntry): void {
-    if (this.table.size >= this.maxEntries) {
-      this.clear(); // Safe eviction
+  constructor(maxSizeMB: number = 64) {
+    // Approx 32 bytes per entry in JS (object overhead). Let's be conservative.
+    const entrySize = 32; 
+    const numEntries = Math.floor((maxSizeMB * 1024 * 1024) / entrySize);
+    
+    // Nearest power of 2 for fast modulo
+    this.maxEntries = 1;
+    while (this.maxEntries <= numEntries) {
+      this.maxEntries <<= 1;
     }
-    this.table.set(key, entry);
+    this.maxEntries >>= 1; // back down to fit
+
+    this.entries = new Array(this.maxEntries).fill(null);
   }
 
-  /**
-   * Clear all cache entries
-   */
+  public get(key: bigint): TTEntry | null {
+    // In JS bitwise works on 32-bit, so for large mod we use BigInt mod
+    // Wait, maxEntries is a power of 2, so we can use bitwise AND if we cast key to Number.
+    // However, JS bitwise limits to 32 bits.
+    const index = Number(key & BigInt(this.maxEntries - 1));
+    const entry = this.entries[index];
+    if (entry && entry.key === key) {
+      return entry;
+    }
+    return null;
+  }
+
+  public set(key: bigint, depth: number, score: number, flag: number, bestMove: any): void {
+    const index = Number(key & BigInt(this.maxEntries - 1));
+    const existing = this.entries[index];
+    
+    // Always replace strategy or replace if depth >= existing depth
+    if (!existing || existing.key !== key || depth >= existing.depth) {
+      this.entries[index] = { key, depth, score, flag, bestMove };
+    }
+  }
+
   public clear(): void {
-    this.table.clear();
+    this.entries.fill(null);
   }
 
-  /**
-   * Get the current size of the Transposition Table
-   */
   public size(): number {
-    return this.table.size;
+    return this.maxEntries;
   }
 }

@@ -1,4 +1,6 @@
+const fs = require('fs');
 
+const code = `
 export class OpeningTrieNode {
   children: Record<string, OpeningTrieNode> = {};
   moves: string[] = [];
@@ -44,3 +46,6 @@ export function getOpeningMove(history: string[]): string | null {
   if (!moves || moves.length === 0) return null;
   return moves[Math.floor(Math.random() * moves.length)];
 }
+`;
+
+fs.writeFileSync('src/lib/openingBook.ts', code);

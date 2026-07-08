@@ -1,5 +1,6 @@
 import { EMPTY, ALL, setBit, clearBit, toggleBit, checkBit, popLSB, popCount } from './core';
 import { KNIGHT_ATTACKS, KING_ATTACKS, PAWN_ATTACKS, getSliderAttacks } from './attacks';
+import { ZOBRIST_PIECE, ZOBRIST_SIDE, ZOBRIST_CASTLING, ZOBRIST_EP } from './zobrist';
 
 export const PIECE_PAWN = 0;
 export const PIECE_KNIGHT = 1;
@@ -26,6 +27,7 @@ export class BitboardEngine {
   public fullMoveNumber: number = 1;
 
   public history: any[] = [];
+  public hashKey: bigint = 0n;
 
   constructor() {
     this.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -86,12 +88,35 @@ export class BitboardEngine {
       this.epSquare = rank * 8 + file;
     }
 
+    this.hashKey = this.generateHash();
     this.halfMoveClock = parseInt(parts[4] || '0', 10);
     this.fullMoveNumber = parseInt(parts[5] || '1', 10);
   }
 
   // Very basic pseudo-legal move generation
   // For production, needs pins, checks, castling blocks, etc.
+  public generateHash(): bigint {
+    let h = 0n;
+    for (let c = 0; c < 2; c++) {
+      for (let p = 0; p < 6; p++) {
+        let bb = this.pieceBB[c][p];
+        while (bb !== 0n) {
+          const { sq, bb: rem } = popLSB(bb);
+          bb = rem;
+          h ^= ZOBRIST_PIECE[c][p][sq];
+        }
+      }
+    }
+    if (this.sideToMove === COLOR_BLACK) h ^= ZOBRIST_SIDE;
+    h ^= ZOBRIST_CASTLING[this.castlingRights];
+    if (this.epSquare !== -1) {
+      h ^= ZOBRIST_EP[this.epSquare % 8];
+    } else {
+      h ^= ZOBRIST_EP[8];
+    }
+    return h;
+  }
+
   public inCheck(color: number): boolean {
     const kingBB = this.pieceBB[color][PIECE_KING];
     if (kingBB === 0n) return false;
@@ -131,7 +156,7 @@ export class BitboardEngine {
       epSquare: this.epSquare,
       castlingRights: this.castlingRights,
       halfMoveClock: this.halfMoveClock,
-      capturedBB: this.pieceBB[this.sideToMove ^ 1].map(x => x)
+      hashKey: this.hashKey
     });
 
     const fromBB = 1n << BigInt(m.from);
@@ -140,13 +165,18 @@ export class BitboardEngine {
     const opp = color ^ 1;
 
     // Remove from
-    this.pieceBB[color][m.piece] &= ~fromBB;
-    this.colorBB[color] &= ~fromBB;
+    this.pieceBB[color][m.piece] ^= fromBB;
+    this.colorBB[color] ^= fromBB;
+    this.hashKey ^= ZOBRIST_PIECE[color][m.piece][m.from];
 
     // Handle captures
     if (m.captured !== -1) {
-      this.pieceBB[opp][m.captured] &= ~toBB;
-      this.colorBB[opp] &= ~toBB;
+      let capSq = m.to;
+      if (m.flags === 1) capSq = color === COLOR_WHITE ? m.to - 8 : m.to + 8;
+      const capBB = 1n << BigInt(capSq);
+      this.pieceBB[opp][m.captured] ^= capBB;
+      this.colorBB[opp] ^= capBB;
+      this.hashKey ^= ZOBRIST_PIECE[opp][m.captured][capSq];
       this.halfMoveClock = 0;
     } else if (m.piece === PIECE_PAWN) {
       this.halfMoveClock = 0;
@@ -158,25 +188,32 @@ export class BitboardEngine {
     let putPiece = m.piece;
     if (m.promotion !== -1) putPiece = m.promotion;
     
-    this.pieceBB[color][putPiece] |= toBB;
-    this.colorBB[color] |= toBB;
+    this.pieceBB[color][putPiece] ^= toBB;
+    this.colorBB[color] ^= toBB;
+    this.hashKey ^= ZOBRIST_PIECE[color][putPiece][m.to];
 
     // Handle castling rook moves
     if (m.flags === 2) {
       if (m.to === 62) { // wk
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 63n) | (1n << 61n);
         this.colorBB[color] ^= (1n << 63n) | (1n << 61n);
+        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][63] ^ ZOBRIST_PIECE[color][PIECE_ROOK][61];
       } else if (m.to === 58) { // wq
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 56n) | (1n << 59n);
         this.colorBB[color] ^= (1n << 56n) | (1n << 59n);
+        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][56] ^ ZOBRIST_PIECE[color][PIECE_ROOK][59];
       } else if (m.to === 6) { // bk
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 7n) | (1n << 5n);
         this.colorBB[color] ^= (1n << 7n) | (1n << 5n);
+        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][7] ^ ZOBRIST_PIECE[color][PIECE_ROOK][5];
       } else if (m.to === 2) { // bq
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 0n) | (1n << 3n);
         this.colorBB[color] ^= (1n << 0n) | (1n << 3n);
+        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][0] ^ ZOBRIST_PIECE[color][PIECE_ROOK][3];
       }
     }
+
+    this.hashKey ^= ZOBRIST_CASTLING[this.castlingRights];
 
     // Update castling rights
     if (m.piece === PIECE_KING) {
@@ -188,8 +225,25 @@ export class BitboardEngine {
     if (m.from === 7 || m.to === 7) this.castlingRights &= ~4;
     if (m.from === 0 || m.to === 0) this.castlingRights &= ~8;
 
+    this.hashKey ^= ZOBRIST_CASTLING[this.castlingRights];
+
+    if (this.epSquare !== -1) {
+      this.hashKey ^= ZOBRIST_EP[this.epSquare % 8];
+      this.epSquare = -1;
+    } else {
+      this.hashKey ^= ZOBRIST_EP[8];
+    }
+
+    if (m.flags === 4) {
+      this.epSquare = color === COLOR_WHITE ? m.from + 8 : m.from - 8;
+      this.hashKey ^= ZOBRIST_EP[this.epSquare % 8];
+    } else {
+      this.hashKey ^= ZOBRIST_EP[8];
+    }
+
     this.occupied = this.colorBB[COLOR_WHITE] | this.colorBB[COLOR_BLACK];
     this.sideToMove ^= 1;
+    this.hashKey ^= ZOBRIST_SIDE;
     if (this.sideToMove === COLOR_WHITE) this.fullMoveNumber++;
   }
 
@@ -207,15 +261,18 @@ export class BitboardEngine {
 
     let putPiece = m.promotion !== -1 ? m.promotion : m.piece;
 
-    this.pieceBB[color][putPiece] &= ~toBB;
-    this.colorBB[color] &= ~toBB;
+    this.pieceBB[color][putPiece] ^= toBB;
+    this.colorBB[color] ^= toBB;
 
-    this.pieceBB[color][m.piece] |= fromBB;
-    this.colorBB[color] |= fromBB;
+    this.pieceBB[color][m.piece] ^= fromBB;
+    this.colorBB[color] ^= fromBB;
 
     if (m.captured !== -1) {
-      this.pieceBB[opp][m.captured] |= toBB;
-      this.colorBB[opp] |= toBB;
+      let capSq = m.to;
+      if (m.flags === 1) capSq = color === COLOR_WHITE ? m.to - 8 : m.to + 8;
+      const capBB = 1n << BigInt(capSq);
+      this.pieceBB[opp][m.captured] ^= capBB;
+      this.colorBB[opp] ^= capBB;
     }
 
     if (m.flags === 2) {
@@ -237,6 +294,7 @@ export class BitboardEngine {
     this.epSquare = state.epSquare;
     this.castlingRights = state.castlingRights;
     this.halfMoveClock = state.halfMoveClock;
+    this.hashKey = state.hashKey;
     this.occupied = this.colorBB[COLOR_WHITE] | this.colorBB[COLOR_BLACK];
   }
 }

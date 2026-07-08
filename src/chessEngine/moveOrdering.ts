@@ -1,17 +1,18 @@
-import { Chess } from 'chess.js';
+import { Move } from './movegen';
+import { BitboardEngine } from './board';
 
 /**
  * Sort moves to optimize Alpha-Beta Pruning (PV move / MVV-LVA / Killer Moves / History Heuristics)
  */
 export function sortMoves(
-  chess: Chess,
-  moves: any[],
+  board: BitboardEngine,
+  moves: Move[],
   ply: number,
-  ttMove: any | null,
-  killerMoves: { from: string; to: string; promotion?: string }[][],
+  ttMove: Move | null,
+  killerMoves: Move[][],
   historyMoves: Record<string, number>
-): any[] {
-  const valueMap: Record<string, number> = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+): Move[] {
+  const valueMap = [100, 320, 330, 500, 900, 20000]; // PAWN=0, KNIGHT=1, BISHOP=2, ROOK=3, QUEEN=4, KING=5
   
   return moves.map(m => {
     let priority = 0;
@@ -22,12 +23,14 @@ export function sortMoves(
     }
 
     // 2. Captures: MVV-LVA (Most Valuable Victim, Least Valuable Assault)
-    if (m.captured) {
+    if (m.captured !== -1) {
       priority += 10000 + valueMap[m.captured] - (valueMap[m.piece] / 100);
+    } else if (m.flags === 1) { // En passant
+      priority += 10000 + valueMap[0] - (valueMap[0] / 100);
     }
 
     // 3. Promotion
-    if (m.promotion) {
+    if (m.promotion !== -1) {
       priority += 9000 + valueMap[m.promotion];
     }
 
@@ -42,17 +45,24 @@ export function sortMoves(
     }
 
     // 5. Checks
-    if (m.san && m.san.includes('+')) {
+    // In our Bitboard Engine we need to test if the move gives check, but it's expensive to do it fully here
+    // Let's do a fast pseudo-legal check test or simply make/undo if necessary, 
+    // but for now let's just make the move and see if it's check to assign priority.
+    board.makeMove(m);
+    if (board.inCheck(board.sideToMove)) {
       priority += 5000;
     }
+    board.undoMove(m);
 
     // 6. History Heuristics for quiet moves
-    const historyKey = `${m.from}_${m.to}_${m.promotion || ''}`;
-    const historyScore = historyMoves[historyKey] || 0;
-    priority += Math.min(4000, historyScore);
+    if (m.captured === -1 && m.flags !== 1) {
+      const historyKey = `${m.from}_${m.to}_${m.promotion}`;
+      const historyScore = historyMoves[historyKey] || 0;
+      priority += Math.min(4000, historyScore);
+    }
 
     // 7. Castling
-    if (m.flags && (m.flags.includes('k') || m.flags.includes('q'))) {
+    if (m.flags === 2) {
       priority += 1000;
     }
     
