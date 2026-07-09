@@ -90,6 +90,67 @@ export class ChessEngine {
       };
     }
 
+    // 1.5 Syzygy Endgame Tablebase Integration (7-piece or fewer)
+    const pieceCount = fen.split(' ')[0].replace(/[\/1-8]/g, '').length;
+    if (pieceCount <= 7) {
+      try {
+        let data: any = null;
+        if (typeof window === 'undefined') {
+          const response = await fetch(`https://tablebase.lichess.ovh/standard?fen=${encodeURIComponent(fen)}`);
+          if (response.ok) {
+            data = await response.json();
+          }
+        } else {
+          const response = await fetch(`/api/syzygy?fen=${encodeURIComponent(fen)}`);
+          if (response.ok) {
+            data = await response.json();
+          }
+        }
+
+        if (data && data.moves && data.moves.length > 0) {
+          const bestMoveData = data.moves[0];
+          const tempChess = new Chess(fen);
+          let parsedMove = null;
+          try {
+            parsedMove = tempChess.move(bestMoveData.uci);
+          } catch (err) {
+            try {
+              parsedMove = tempChess.move(bestMoveData.san);
+            } catch (_) {}
+          }
+
+          if (parsedMove) {
+            let score = 0;
+            if (data.category === 'win' || bestMoveData.category === 'win') {
+              score = tempChess.turn() === 'b' ? 20000 : -20000;
+            } else if (data.category === 'loss' || bestMoveData.category === 'loss') {
+              score = tempChess.turn() === 'b' ? -20000 : 20000;
+            }
+            
+            return {
+              bestMove: {
+                san: parsedMove.san,
+                from: parsedMove.from,
+                to: parsedMove.to,
+                piece: parsedMove.piece,
+                color: parsedMove.color,
+                promotion: parsedMove.promotion || undefined,
+                lan: parsedMove.from + parsedMove.to + (parsedMove.promotion || '')
+              },
+              score: score,
+              depth: data.dtz || 0,
+              nodes: 1,
+              nps: 1,
+              pv: [parsedMove.san],
+              bookOpeningName: "Syzygy Endgame Tablebase"
+            };
+          }
+        }
+      } catch (err) {
+        console.warn("Syzygy tablebase lookup skipped:", err);
+      }
+    }
+
     // 2. Check Extension Heuristic: If in check or deep game, extend target search depth
     let modifiedDepth = this.config.maxDepth;
     if (chess.inCheck() || chess.history().length > 10) {

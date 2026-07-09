@@ -45,10 +45,10 @@ export const LiveAnalysis: React.FC = () => {
     setAnalysis(prev => ({ ...prev, isAnalyzing: true }));
     
     // Defer to prevent lockups
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
         const engineInstance = new ChessEngine(config);
-        const res = engineInstance.search(currentChess.fen(), 0.85, currentChess.history());
+        const res = await engineInstance.search(currentChess.fen(), 0.85, currentChess.history());
         
         setAnalysis({
           depth: res.depth,

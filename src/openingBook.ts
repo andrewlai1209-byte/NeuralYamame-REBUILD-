@@ -282,46 +282,89 @@ export const OPENING_BOOK: OpeningBookLine[] = [
   }
 ];
 
+export class OpeningTrieNode {
+  children: Record<string, OpeningTrieNode> = {};
+  line: OpeningBookLine | null = null;
+}
+
+export class OpeningTrie {
+  root: OpeningTrieNode = new OpeningTrieNode();
+
+  constructor() {
+    this.build();
+  }
+
+  private build() {
+    // Sort lines by priority (lower priority number = more elite/preferred)
+    const sortedLines = [...OPENING_BOOK].sort((a, b) => a.priority - b.priority);
+
+    for (const line of sortedLines) {
+      let current = this.root;
+      for (let i = 0; i < line.moves.length; i++) {
+        const move = line.moves[i].toLowerCase();
+        if (!current.children[move]) {
+          current.children[move] = new OpeningTrieNode();
+        }
+        current = current.children[move];
+      }
+      current.line = line;
+    }
+  }
+
+  public findMove(history: string[]): OpeningBookLine | null {
+    let current = this.root;
+    for (const move of history) {
+      const lowerMove = move.toLowerCase();
+      if (!current.children[lowerMove]) {
+        return null;
+      }
+      current = current.children[lowerMove];
+    }
+
+    if (current.line) {
+      return current.line;
+    }
+
+    return this.findBestLeaf(current, history.length);
+  }
+
+  private findBestLeaf(node: OpeningTrieNode, depth: number): OpeningBookLine | null {
+    let bestLine: OpeningBookLine | null = node.line;
+
+    for (const key in node.children) {
+      const childLeaf = this.findBestLeaf(node.children[key], depth);
+      if (childLeaf) {
+        if (!bestLine || childLeaf.priority < bestLine.priority) {
+          bestLine = childLeaf;
+        }
+      }
+    }
+
+    if (bestLine) {
+      const nextMove = bestLine.moves[depth];
+      if (nextMove) {
+        return {
+          ...bestLine,
+          nextBookMove: nextMove
+        };
+      }
+    }
+
+    return bestLine;
+  }
+}
+
+export const globalOpeningTrie = new OpeningTrie();
+
 /**
  * Searches the opening book database for any active line matching the game's move history.
  * @param moveHistory List of SAN moves played so far (e.g. ["e4", "c5", "Nf3"])
  */
 export function findBookMove(moveHistory: string[]): OpeningBookLine | null {
   if (moveHistory.length === 0) {
-    // Return standard 1.e4 or 1.c4 randomly based on priority, or Sicilian default
+    // Default starting move is e4 with Sicilian default
     return OPENING_BOOK.find(line => line.moves.length === 1 && line.moves[0] === "e4") || null;
   }
 
-  // Find exact prefixes
-  let bestMatch: OpeningBookLine | null = null;
-  
-  for (const line of OPENING_BOOK) {
-    const len = line.moves.length;
-    if (moveHistory.length === len) {
-      // Check if history matches line moves exactly
-      const matches = moveHistory.every((move, i) => move.toLowerCase() === line.moves[i].toLowerCase());
-      if (matches) {
-        // We found an exact match for this exact sequence! Recommend nextBookMove
-        if (!bestMatch || line.priority < bestMatch.priority) {
-          bestMatch = line;
-        }
-      }
-    } else if (moveHistory.length < len) {
-      // Partial prefix check to guide opening progression
-      const isPrefix = moveHistory.every((move, i) => move.toLowerCase() === line.moves[i].toLowerCase());
-      if (isPrefix) {
-        // Return this line as the active opening track
-        const nextMoveInLine = line.moves[moveHistory.length];
-        const dummyLine: OpeningBookLine = {
-          ...line,
-          nextBookMove: nextMoveInLine
-        };
-        if (!bestMatch || line.priority < bestMatch.priority) {
-          bestMatch = dummyLine;
-        }
-      }
-    }
-  }
-
-  return bestMatch;
+  return globalOpeningTrie.findMove(moveHistory);
 }

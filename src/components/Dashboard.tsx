@@ -17,7 +17,7 @@ const FALLBACK_DATA = {
   currentElo: 2315,
   currentEloTraditional: 1845,
   currentEloNeural: 2120,
-  currentEloNeuralCore: 2480,
+  currentEloNeuralYamame: 2480,
   policyLoss: 0.1240,
   valueLoss: 0.0860,
   trainSpeed: 1450,
@@ -29,7 +29,7 @@ const FALLBACK_DATA = {
     eloTraditional: 1800 + Math.floor(Math.sin(i / 2) * 15) + i * 2,
     eloNeural: 1950 + i * 8 + Math.floor(Math.random() * 10),
     eloHybrid: 2100 + i * 11 + Math.floor(Math.random() * 15),
-    eloNeuralCore: 2250 + i * 12.5 + Math.floor(Math.random() * 12),
+    eloNeuralYamame: 2250 + i * 12.5 + Math.floor(Math.random() * 12),
   })),
   lossHistory: Array.from({ length: 20 }, (_, i) => ({
     epoch: i + 1,
@@ -60,7 +60,7 @@ const FALLBACK_DATA = {
     startTime: '12:00:00 PM'
   },
   enginesList: [
-    { id: 'neuralcore', name: 'NeuralCore CH (v1.0)', shortName: 'NeuralCore CH', baseElo: 2480, maxDepth: 8, wins: 28402, draws: 11451, losses: 14238, active: true },
+    { id: 'neuralcore', name: 'NeuralYamame REBUILD (v1.0)', shortName: 'NeuralYamame REBUILD', baseElo: 2480, maxDepth: 8, wins: 28402, draws: 11451, losses: 14238, active: true },
     { id: 'hybrid', name: 'Aetheris Hybrid (v3.0)', shortName: 'Aetheris Hybrid', baseElo: 2315, maxDepth: 6, wins: 23419, draws: 12102, losses: 18274, active: true },
     { id: 'neural', name: 'Aetheris Neural (v2.8)', shortName: 'Aetheris Neural', baseElo: 2120, maxDepth: 5, wins: 19541, draws: 10429, losses: 21950, active: true },
     { id: 'traditional', name: 'Traditional Minimax (Depth 4)', shortName: 'Traditional Minimax', baseElo: 1845, maxDepth: 4, wins: 14205, draws: 9401, losses: 28942, active: true },
@@ -144,6 +144,7 @@ export const Dashboard: React.FC = () => {
     trainingTarget: 'pantheon_fusion' as 'stockfish' | 'komodo' | 'patricia' | 'nova' | 'lc0' | 'torch' | 'pantheon_fusion' | 'neuralcore_rl_selfplay'
   });
   const [isTraining, setIsTraining] = useState(false);
+  const [isAggregating, setIsAggregating] = useState(false);
   const [gradientStep, setGradientStep] = useState(0);
   const [lossDelta, setLossDelta] = useState<string | null>(null);
 
@@ -181,6 +182,33 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleAggregateRl = async () => {
+    setIsAggregating(true);
+    try {
+      const res = await fetch('/api/cloud-training/aggregate-rl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const result = await res.json();
+      if (result.success) {
+        const statusRes = await fetch('/api/cloud-training/status');
+        const json = await statusRes.json();
+        setData(json);
+        setLossDelta(`Aggregated ${result.stats.totalRecords} sessions! Rating boosted +${result.stats.eloBoost} ELO.`);
+        setTimeout(() => setLossDelta(null), 5000);
+      } else {
+        setLossDelta(`Aggregation failed: ${result.error}`);
+        setTimeout(() => setLossDelta(null), 5000);
+      }
+    } catch (e: any) {
+      console.error('Aggregation error:', e);
+      setLossDelta(`Network error: ${e.message}`);
+      setTimeout(() => setLossDelta(null), 5000);
+    } finally {
+      setIsAggregating(false);
+    }
+  };
+
   // Scroll to bottom of terminal logs
   useEffect(() => {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -203,7 +231,7 @@ export const Dashboard: React.FC = () => {
     currentElo,
     currentEloTraditional,
     currentEloNeural,
-    currentEloNeuralCore,
+    currentEloNeuralYamame,
     policyLoss,
     valueLoss,
     trainSpeed,
@@ -280,9 +308,9 @@ export const Dashboard: React.FC = () => {
             <div className="bg-slate-800/80 border border-slate-700/50 ring-1 ring-rose-500/30 rounded-xl px-3 py-2 text-center min-w-[95px]">
               <div className="text-[10px] font-medium text-rose-300 mb-0.5 font-mono flex items-center justify-center gap-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping inline-block" />
-                NeuralCore
+                NeuralYamame
               </div>
-              <div className="text-base font-bold text-rose-400">{currentEloNeuralCore || 2480}</div>
+              <div className="text-base font-bold text-rose-400">{currentEloNeuralYamame || 2480}</div>
             </div>
             <div className="bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-center min-w-[95px]">
               <div className="text-[10px] font-medium text-slate-400 mb-0.5">Cloud Games</div>
@@ -425,7 +453,7 @@ export const Dashboard: React.FC = () => {
                     <YAxis domain={[1700, 2600]} stroke="#64748b" fontSize={11} tickLine={false} />
                     <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#fff' }} />
                     <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="eloNeuralCore" name="NeuralCore CH" stroke="#f43f5e" strokeWidth={3} activeDot={{ r: 7 }} dot={false} />
+                    <Line type="monotone" dataKey="eloNeuralYamame" name="NeuralYamame REBUILD" stroke="#f43f5e" strokeWidth={3} activeDot={{ r: 7 }} dot={false} />
                     <Line type="monotone" dataKey="eloHybrid" name="Aetheris Hybrid" stroke="#10b981" strokeWidth={2.5} activeDot={{ r: 6 }} dot={false} />
                     <Line type="monotone" dataKey="eloNeural" name="Aetheris Neural" stroke="#3b82f6" strokeWidth={2} dot={false} />
                     <Line type="monotone" dataKey="eloTraditional" name="Traditional Minimax" stroke="#64748b" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
@@ -574,13 +602,13 @@ export const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Award className="w-4 h-4 text-indigo-400" />
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider">NeuralCore Deep Learning Portal</h3>
+                 <h3 className="text-xs font-bold text-white uppercase tracking-wider">NeuralYamame REBUILD Deep Learning Portal</h3>
               </div>
-              <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded font-mono font-bold border border-indigo-500/20 animate-pulse">NC-DISTILL</span>
+              <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded font-mono font-bold border border-indigo-500/20 animate-pulse">NY-REBUILD</span>
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              Formulate weights for our custom <b>NeuralCore Chess Engine</b> via knowledge distillation. Select one of the high-thinking chess engines below as the sparring partner/teacher target.
+              Formulate weights for our custom <b>NeuralYamame REBUILD Chess Engine</b> via knowledge distillation. Select one of the high-thinking chess engines below as the sparring partner/teacher target.
             </p>
 
             <div className="space-y-1 text-xs">
@@ -591,7 +619,7 @@ export const Dashboard: React.FC = () => {
                 className="w-full bg-slate-950 border border-indigo-500/30 rounded px-2.5 py-1.5 text-white focus:outline-none focus:border-indigo-500 font-sans text-xs"
               >
                 <option value="pantheon_fusion">🔥 Grand Fusion Pantheon (Multi-Engine Composite Target)</option>
-                <option value="neuralcore_rl_selfplay">🤖 NeuralCore RL Self-Play (Autonomous Self-Learning)</option>
+                <option value="neuralcore_rl_selfplay">🤖 NeuralYamame REBUILD RL Self-Play (Autonomous Self-Learning)</option>
                 <option value="stockfish">🐟 Stockfish NNUE (Deep Tactical Generalization)</option>
                 <option value="lc0">🧠 Leela Chess Zero Lc0 (Deep Positional Neural)</option>
                 <option value="torch">⚡ Torch Engine (High Mobility Tactical Hybrid)</option>
@@ -659,7 +687,7 @@ export const Dashboard: React.FC = () => {
 
             <button
               onClick={handleRunSelfTraining}
-              disabled={isTraining}
+              disabled={isTraining || isAggregating}
               className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-600/10 cursor-pointer disabled:bg-slate-850 disabled:text-slate-600"
             >
               {isTraining ? (
@@ -676,6 +704,26 @@ export const Dashboard: React.FC = () => {
                 </>
               )}
             </button>
+
+            {trainConfig.trainingTarget === 'neuralcore_rl_selfplay' && (
+              <button
+                onClick={handleAggregateRl}
+                disabled={isAggregating || isTraining}
+                className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-amber-500/30 text-amber-400 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isAggregating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Aggregating Distributed RL Experiences...
+                  </>
+                ) : (
+                  <>
+                    <Award className="w-3.5 h-3.5" />
+                    Aggregate & Update Global Model
+                  </>
+                )}
+              </button>
+            )}
 
             {lossDelta && (
               <div className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg p-2.5 text-[10px] font-mono text-center animate-pulse">

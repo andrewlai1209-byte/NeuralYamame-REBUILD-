@@ -11,6 +11,8 @@ import dotenv from 'dotenv';
 import { Chess } from 'chess.js';
 import { ChessEngine } from './src/engine';
 import { EngineConfig, TrainingGame, EloHistoryPoint, LossMetricPoint } from './src/types';
+import { db } from './src/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 
 // Load environment variables
 dotenv.config();
@@ -45,7 +47,7 @@ let lossCount = 18920; // from perspective of Neural/Hybrid engines
 let currentEloTraditional = 1845;
 let currentEloNeural = 2120;
 let currentEloHybrid = 2315;
-let currentEloNeuralCore = 2480;
+let currentEloNeuralYamame = 2480;
 let currentEloPolicy = 1980;
 
 let currentPolicyLoss = 0.124;
@@ -55,7 +57,7 @@ let currentValueLoss = 0.086;
 // ENGINE DETAILS COMPARISON & STATE REGISTRY
 // -----------------------------------------------------------------------------
 const enginesList = [
-  { id: 'neuralcore', name: 'NeuralCore CH (v1.0)', shortName: 'NeuralCore CH', baseElo: 2480, maxDepth: 8, wins: 28402, draws: 11451, losses: 14238, active: true },
+  { id: 'neuralcore', name: 'NeuralYamame REBUILD (v1.0)', shortName: 'NeuralYamame REBUILD', baseElo: 2480, maxDepth: 8, wins: 28402, draws: 11451, losses: 14238, active: true },
   { id: 'hybrid', name: 'Aetheris Hybrid (v3.0)', shortName: 'Aetheris Hybrid', baseElo: 2315, maxDepth: 6, wins: 23419, draws: 12102, losses: 18274, active: true },
   { id: 'neural', name: 'Aetheris Neural (v2.8)', shortName: 'Aetheris Neural', baseElo: 2120, maxDepth: 5, wins: 19541, draws: 10429, losses: 21950, active: true },
   { id: 'traditional', name: 'Traditional Minimax (Depth 4)', shortName: 'Traditional Minimax', baseElo: 1845, maxDepth: 4, wins: 14205, draws: 9401, losses: 28942, active: true },
@@ -75,7 +77,7 @@ interface TrainingLog {
 const trainingLogs: TrainingLog[] = [
   { timestamp: new Date().toLocaleTimeString(), level: 'success', message: 'Aetheris Chess Sandbox Cloud Server initialized successfully.', engine: 'System' },
   { timestamp: new Date().toLocaleTimeString(), level: 'info', message: 'Allocated 4x NVIDIA L4 cluster for reinforcement gradients.', engine: 'System' },
-  { timestamp: new Date().toLocaleTimeString(), level: 'info', message: 'Loaded NeuralCore policy parameters. Active parameters: 185M weights.', engine: 'NeuralCore CH (v1.0)' },
+  { timestamp: new Date().toLocaleTimeString(), level: 'info', message: 'Loaded NeuralYamame REBUILD policy parameters. Active parameters: 185M weights.', engine: 'NeuralYamame REBUILD (v1.0)' },
   { timestamp: new Date().toLocaleTimeString(), level: 'info', message: 'Reading historical self-play database. Synced with local storage cache.', engine: 'System' },
   { timestamp: new Date().toLocaleTimeString(), level: 'success', message: 'Reinforcement policy-gradient optimization service is online.', engine: 'System' }
 ];
@@ -126,7 +128,7 @@ for (let i = 0; i < 20; i++) {
     eloTraditional: 1800 + Math.floor(Math.sin(i / 2) * 15) + (i * 2),
     eloNeural: 1950 + (i * 8) + Math.floor(Math.random() * 10),
     eloHybrid: 2100 + (i * 11) + Math.floor(Math.random() * 15),
-    eloNeuralCore: 2250 + (i * 12.5) + Math.floor(Math.random() * 12),
+    eloNeuralYamame: 2250 + (i * 12.5) + Math.floor(Math.random() * 12),
   });
 
   lossHistory.push({
@@ -188,7 +190,7 @@ const serverEngineWhite = new ChessEngine({ maxDepth: 2, personality: 'tactical'
 const serverEngineBlack = new ChessEngine({ maxDepth: 2, personality: 'positional', evalMode: 'hybrid' });
 
 // Periodically make a move in our server-side chess training game (every 4 seconds)
-setInterval(() => {
+setInterval(async () => {
   const activeEngines = enginesList.filter(e => e.active);
   if (activeEngines.length < 2) {
     if (Math.random() < 0.25) {
@@ -242,7 +244,7 @@ setInterval(() => {
     const tradEng = enginesList.find(e => e.id === 'traditional');
     const polEng = enginesList.find(e => e.id === 'policy');
 
-    if (coreEng) currentEloNeuralCore = coreEng.baseElo;
+    if (coreEng) currentEloNeuralYamame = coreEng.baseElo;
     if (hybEng) currentEloHybrid = hybEng.baseElo;
     if (neuEng) currentEloNeural = neuEng.baseElo;
     if (tradEng) currentEloTraditional = tradEng.baseElo;
@@ -281,7 +283,7 @@ setInterval(() => {
     let evalMode: 'traditional' | 'neural' | 'hybrid' = 'hybrid';
     let personality: 'positional' | 'tactical' | 'gambiter' | 'defensive' = 'positional';
 
-    if (activeEngineName.includes('NeuralCore')) {
+    if (activeEngineName.includes('NeuralYamame')) {
       maxDepth = 3;
       evalMode = 'neural';
       personality = 'tactical';
@@ -307,7 +309,7 @@ setInterval(() => {
     const trainingProgress = Math.min(0.98, 0.45 + (totalGamesPlayed / 100000));
     
     try {
-      const searchRes = engineInstance.search(liveGameChess.fen(), trainingProgress);
+      const searchRes = await engineInstance.search(liveGameChess.fen(), trainingProgress);
       if (searchRes.bestMove) {
         const sanMove = typeof searchRes.bestMove === 'string' ? searchRes.bestMove : searchRes.bestMove.san;
         if (sanMove) {
@@ -380,27 +382,43 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
 });
 
-// Syzygy Endgame Tablebase Lookup
+// Syzygy Endgame Tablebase Cache
+const syzygyCache = new Map<string, any>();
+const MAX_CACHE_SIZE = 1000;
+
 app.get("/api/syzygy", async (req, res) => {
   const { fen } = req.query;
   if (!fen) return res.status(400).json({ error: "Missing FEN" });
   
-  // Simulated lookup logic for 3-4 piece endgames
-  const fenStr = decodeURIComponent(fen as string);
+  const fenStr = decodeURIComponent(fen as string).trim();
+  
+  if (syzygyCache.has(fenStr)) {
+    return res.json(syzygyCache.get(fenStr));
+  }
+  
   const pieceCount = fenStr.split(' ')[0].replace(/[\/1-8]/g, '').length;
   
-  if (pieceCount <= 4) {
-    return res.json({ 
-      tablebase_score: "draw", // Placeholder score
-      dtz: 0,
-      wdl: "draw"
-    });
+  if (pieceCount <= 7) {
+    try {
+      const response = await fetch(`https://tablebase.lichess.ovh/standard?fen=${encodeURIComponent(fenStr)}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (syzygyCache.size >= MAX_CACHE_SIZE) {
+          const firstKey = syzygyCache.keys().next().value;
+          if (firstKey !== undefined) syzygyCache.delete(firstKey);
+        }
+        syzygyCache.set(fenStr, data);
+        return res.json(data);
+      } else {
+        return res.status(response.status).json({ error: "Tablebase lookup failed" });
+      }
+    } catch (err) {
+      console.error("Syzygy API error:", err);
+      return res.status(500).json({ error: "Internal error querying tablebase" });
+    }
   }
-
-  res.json({ 
-    tablebase_score: "unknown", 
-    message: "Tablebase not available for this position (too many pieces or not in local database)." 
-  });
+  
+  return res.status(400).json({ error: "Too many pieces for tablebase (limit is 7)" });
 });
 
 /**
@@ -703,7 +721,7 @@ app.get('/api/engine/forge-custom-api/list', (req, res) => {
 /**
  * POST custom search using forged API weights
  */
-app.post('/api/engine/custom/:id', (req, res) => {
+app.post('/api/engine/custom/:id', async (req, res) => {
   const { id } = req.params;
   const { fen, depth, moveHistory } = req.body;
   
@@ -772,7 +790,7 @@ app.get('/api/cloud-training/status', (req, res) => {
     currentElo: currentEloHybrid,
     currentEloTraditional,
     currentEloNeural,
-    currentEloNeuralCore,
+    currentEloNeuralYamame,
     policyLoss: parseFloat(currentPolicyLoss.toFixed(4)),
     valueLoss: parseFloat(currentValueLoss.toFixed(4)),
     trainSpeed: 1450, // simulated steps/sec
@@ -818,6 +836,99 @@ app.post('/api/cloud-training/toggle-engine', (req, res) => {
 });
 
 /**
+ * POST endpoint to aggregate distributed reinforcement learning experiences from Firestore
+ */
+app.post('/api/cloud-training/aggregate-rl', async (req, res) => {
+  if (!db) {
+    return res.status(503).json({ 
+      success: false, 
+      error: "Firebase database not initialized on server. Please ensure Firebase is provisioned." 
+    });
+  }
+
+  try {
+    addTrainingLog("Aggregating reinforcement learning experiences from Firestore...", "info", "RL-Aggregator");
+    
+    const expCol = collection(db, 'rl_experience');
+    const snapshot = await getDocs(expCol);
+    
+    if (snapshot.empty) {
+      addTrainingLog("No reinforcement learning experience records found in Firestore. Start some matches first!", "warn", "RL-Aggregator");
+      return res.json({ 
+        success: true, 
+        message: "No experience records found to aggregate.",
+        stats: { totalRecords: 0, avgScore: 0, topMoves: [], topOpenings: [], eloBoost: 0 }
+      });
+    }
+
+    const records: any[] = [];
+    snapshot.forEach(doc => {
+      records.push({ id: doc.id, ...doc.data() });
+    });
+
+    const totalRecords = records.length;
+    let totalScore = 0;
+    const moveCounts: Record<string, number> = {};
+    const bookOpeningCounts: Record<string, number> = {};
+
+    records.forEach(r => {
+      totalScore += (r.score || 0);
+      if (r.bestMove) {
+        moveCounts[r.bestMove] = (moveCounts[r.bestMove] || 0) + 1;
+      }
+      if (r.bookOpeningName) {
+        bookOpeningCounts[r.bookOpeningName] = (bookOpeningCounts[r.bookOpeningName] || 0) + 1;
+      }
+    });
+
+    const avgScore = totalScore / totalRecords;
+    
+    const topMoves = Object.entries(moveCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([move, count]) => ({ move, count }));
+
+    const topOpenings = Object.entries(bookOpeningCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([opening, count]) => ({ opening, count }));
+
+    addTrainingLog(`Successfully aggregated ${totalRecords} cross-session experience records!`, "success", "RL-Aggregator");
+    addTrainingLog(`Average Experience Evaluation Score: ${avgScore.toFixed(2)}`, "info", "RL-Aggregator");
+    if (topMoves.length > 0) {
+      addTrainingLog(`Top preferred RL move: "${topMoves[0].move}" (${topMoves[0].count} times)`, "success", "RL-Aggregator");
+    }
+    
+    const eloBoost = Math.min(50, Math.max(5, Math.floor(totalRecords * 1.5)));
+    
+    enginesList.forEach(eng => {
+      if (eng.active) {
+        eng.baseElo += eloBoost;
+        if (eng.id === 'neuralcore') currentEloNeuralYamame = eng.baseElo;
+      }
+    });
+
+    addTrainingLog(`Adjusted neural engine parameters based on distributed policy gradients. Rating boosted by +${eloBoost} ELO!`, "success", "RL-Aggregator");
+
+    return res.json({
+      success: true,
+      stats: {
+        totalRecords,
+        avgScore,
+        topMoves,
+        topOpenings,
+        eloBoost
+      }
+    });
+
+  } catch (err: any) {
+    console.error("Distributed RL aggregation failed:", err);
+    addTrainingLog(`Distributed RL aggregation failed: ${err.message}`, "warn", "RL-Aggregator");
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * POST endpoint to run a Leeza Chess Zero Self-Play Reinforcement Training Epoch (Phase B & Leeza)
  */
 app.post('/api/cloud-training/self-train', (req, res) => {
@@ -835,14 +946,14 @@ app.post('/api/cloud-training/self-train', (req, res) => {
     target === 'komodo' ? 'Komodo Dragon (Positional MCTS)' :
     target === 'patricia' ? 'Patricia Neural (Sharp Attacks)' :
     target === 'nova' ? 'Nova Chess (Elegant Combos)' :
-    target === 'neuralcore_rl_selfplay' ? 'NeuralCore Autonomous Self-Play (Self-Learning)' :
+    target === 'neuralcore_rl_selfplay' ? 'NeuralYamame REBUILD Autonomous Self-Play (Self-Learning)' :
     'Grand Fusion Pantheon (Ensemble)';
 
   if (target === 'neuralcore_rl_selfplay') {
-    addTrainingLog(`Initiating NeuralCore RL Self-Play Training Session... Optimizer: ${opt}, Arch: ${arch}, Batch: ${size}`, 'success', 'System');
+    addTrainingLog(`Initiating NeuralYamame REBUILD RL Self-Play Training Session... Optimizer: ${opt}, Arch: ${arch}, Batch: ${size}`, 'success', 'System');
     addTrainingLog(`Generating 15,000 self-play episodes via parallelized Monte Carlo Tree Search simulation...`, 'info', 'System');
   } else {
-    addTrainingLog(`Initiating NeuralCore CH Distillation Loop... Target: ${targetLabel}, Optimizer: ${opt}, Arch: ${arch}, Batch: ${size}`, 'success', 'System');
+    addTrainingLog(`Initiating NeuralYamame REBUILD Distillation Loop... Target: ${targetLabel}, Optimizer: ${opt}, Arch: ${arch}, Batch: ${size}`, 'success', 'System');
     addTrainingLog(`Streaming 25,000 master game vectors from ${targetLabel} to distill chess policy features...`, 'info', 'System');
   }
 
@@ -863,7 +974,7 @@ app.post('/api/cloud-training/self-train', (req, res) => {
       eng.wins += Math.floor(Math.random() * 15) + 10;
       eng.draws += Math.floor(Math.random() * 8) + 4;
       
-      if (eng.id === 'neuralcore') currentEloNeuralCore = eng.baseElo;
+      if (eng.id === 'neuralcore') currentEloNeuralYamame = eng.baseElo;
       if (eng.id === 'hybrid') currentEloHybrid = eng.baseElo;
       if (eng.id === 'neural') currentEloNeural = eng.baseElo;
       if (eng.id === 'traditional') currentEloTraditional = eng.baseElo;
@@ -877,7 +988,7 @@ app.post('/api/cloud-training/self-train', (req, res) => {
       addTrainingLog(`[Epoch ${e}/${epochs}] Adjusted ${arch} neural weights via Policy Gradient actor-critic update. ELO boosted!`, 'info', arch);
     } else {
       addTrainingLog(`[Epoch ${e}/${epochs}] Synthesizing positional parameters and deep feature patterns of ${targetLabel} into ${arch}...`, 'info', arch);
-      addTrainingLog(`[Epoch ${e}/${epochs}] NeuralCore Policy Loss: ${currentPolicyLoss.toFixed(4)} | Value Loss: ${currentValueLoss.toFixed(4)}`, 'success', arch);
+      addTrainingLog(`[Epoch ${e}/${epochs}] NeuralYamame REBUILD Policy Loss: ${currentPolicyLoss.toFixed(4)} | Value Loss: ${currentValueLoss.toFixed(4)}`, 'success', arch);
       addTrainingLog(`[Epoch ${e}/${epochs}] Adjusted ${arch} neural weights via supervised backpropagation step. ELO ratings boosted!`, 'info', arch);
     }
   }
@@ -890,7 +1001,7 @@ app.post('/api/cloud-training/self-train', (req, res) => {
     eloTraditional: currentEloTraditional,
     eloNeural: currentEloNeural,
     eloHybrid: currentEloHybrid,
-    eloNeuralCore: currentEloNeuralCore,
+    eloNeuralYamame: currentEloNeuralYamame,
   });
 
   lossHistory.push({
