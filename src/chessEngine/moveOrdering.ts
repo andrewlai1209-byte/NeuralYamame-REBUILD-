@@ -10,7 +10,9 @@ export function sortMoves(
   ply: number,
   ttMove: Move | null,
   killerMoves: Move[][],
-  historyMoves: Record<string, number>
+  historyMoves: Record<string, number>,
+  counterMoves?: Record<string, Move>,
+  prevMove?: Move | null
 ): Move[] {
   const valueMap = [100, 320, 330, 500, 900, 20000]; // PAWN=0, KNIGHT=1, BISHOP=2, ROOK=3, QUEEN=4, KING=5
   
@@ -44,10 +46,16 @@ export function sortMoves(
       }
     }
 
+    // 4.5 Countermove Heuristic (CMH) - Quiet responses to previous move
+    if (prevMove && counterMoves) {
+      const prevKey = `${prevMove.from}_${prevMove.to}`;
+      const cm = counterMoves[prevKey];
+      if (cm && m.from === cm.from && m.to === cm.to && m.promotion === cm.promotion) {
+        priority += 7500; // Ordered just after killer move 1
+      }
+    }
+
     // 5. Checks
-    // In our Bitboard Engine we need to test if the move gives check, but it's expensive to do it fully here
-    // Let's do a fast pseudo-legal check test or simply make/undo if necessary, 
-    // but for now let's just make the move and see if it's check to assign priority.
     board.makeMove(m);
     if (board.inCheck(board.sideToMove)) {
       priority += 5000;

@@ -15,6 +15,7 @@ export class ChessEngineSearch {
   private maxNodes: number = 0;
   private killerMoves: Move[][] = new Array(100).fill(0).map(() => []);
   private historyMoves: Record<string, number> = {};
+  private counterMoves: Record<string, Move> = {};
 
   constructor(config: EngineConfig, transTable: TranspositionTable) {
     this.config = config;
@@ -53,6 +54,7 @@ export class ChessEngineSearch {
     this.startTime = performance.now();
     this.timeLimitMs = timeLimitMs;
     this.maxNodes = maxNodes;
+    this.counterMoves = {}; // Clear countermoves for the new search iteration
     const startTime = this.startTime;
     let bestMove: Move | null = null;
     let bestScore = -Infinity;
@@ -68,13 +70,13 @@ export class ChessEngineSearch {
       }
       const isWhite = board.sideToMove === COLOR_WHITE;
 
-      let result = this.alphaBeta(board, currentDepth, alpha, beta, isWhite, evalFunc);
+      let result = this.alphaBeta(board, currentDepth, 0, alpha, beta, isWhite, evalFunc);
 
       // Aspiration window failure handling
       if (result.score <= alpha || result.score >= beta) {
         alpha = -100000;
         beta = 100000;
-        result = this.alphaBeta(board, currentDepth, alpha, beta, isWhite, evalFunc);
+        result = this.alphaBeta(board, currentDepth, 0, alpha, beta, isWhite, evalFunc);
       }
 
       if (result.move && !this.stopSearch) {
@@ -101,10 +103,20 @@ export class ChessEngineSearch {
     };
   }
 
-  private alphaBeta(board: BitboardEngine, depth: number, alpha: number, beta: number, isMaximizing: boolean, evalFunc: (b: BitboardEngine) => number, allowNull: boolean = true): { score: number, move: Move | null } {
+  private alphaBeta(
+    board: BitboardEngine,
+    depth: number,
+    ply: number,
+    alpha: number,
+    beta: number,
+    isMaximizing: boolean,
+    evalFunc: (b: BitboardEngine) => number,
+    allowNull: boolean = true,
+    prevMove: Move | null = null
+  ): { score: number; move: Move | null } {
     this.nodes++;
     
-    // Time management check every 2048 nodes (approx. to save perf)
+    // Time management check every 2048 nodes
     if ((this.nodes & 2047) === 0 && this.nodes > 0) {
        if (this.nodes >= this.maxNodes || (performance.now() - this.startTime) > this.timeLimitMs) {
           this.stopSearch = true;
@@ -112,6 +124,19 @@ export class ChessEngineSearch {
     }
 
     if (this.stopSearch) return { score: 0, move: null };
+
+    // Mate Distance Pruning
+    const mateAlpha = -99999 + ply;
+    const mateBeta = 99999 - ply;
+    if (alpha < mateAlpha) {
+      alpha = mateAlpha;
+      if (alpha >= beta) return { score: alpha, move: null };
+    }
+    if (beta > mateBeta) {
+      beta = mateBeta;
+      if (alpha >= beta) return { score: beta, move: null };
+    }
+
     const fenKey = board.hashKey;
     
     const ttEntry = this.transTable.get(fenKey);
@@ -121,9 +146,21 @@ export class ChessEngineSearch {
       if (ttEntry.flag === 2 && ttEntry.score >= beta) return { score: beta, move: ttEntry.bestMove };
     }
 
-    if (depth <= 0 || generateMoves(board).length === 0) {
+    if (depth <= 0) {
       const score = this.quiesce(board, alpha, beta, isMaximizing, evalFunc);
       return { score, move: null };
+    }
+
+    // Reverse Futility Pruning (Static Null Move Pruning)
+    if (depth <= 3 && ply > 0 && !board.inCheck(board.sideToMove)) {
+       const staticEval = evalFunc(board);
+       const margin = 120 * depth;
+       if (isMaximizing && staticEval - margin >= beta) {
+          return { score: beta, move: null };
+       }
+       if (!isMaximizing && staticEval + margin <= alpha) {
+          return { score: alpha, move: null };
+       }
     }
 
     // Null Move Pruning
@@ -133,7 +170,7 @@ export class ChessEngineSearch {
        board.epSquare = -1;
        
        const R = depth > 6 ? 3 : 2;
-       const ev = this.alphaBeta(board, depth - 1 - R, alpha, beta, !isMaximizing, evalFunc, false).score;
+       const ev = this.alphaBeta(board, depth - 1 - R, ply + 1, alpha, beta, !isMaximizing, evalFunc, false, null).score;
        
        board.sideToMove ^= 1;
        board.epSquare = oldEp;
@@ -147,7 +184,6 @@ export class ChessEngineSearch {
        const staticEval = evalFunc(board);
        const futilityMargin = [0, 100, 300, 500]; // Depends on depth
        if (staticEval + futilityMargin[depth] <= alpha) {
-          // Instead of full prune, we can just do quiescence or drop directly
           return { score: this.quiesce(board, alpha, beta, isMaximizing, evalFunc), move: null };
        }
     } else if (depth <= 3 && !board.inCheck(board.sideToMove) && !isMaximizing) {
@@ -160,12 +196,11 @@ export class ChessEngineSearch {
 
     const rawMoves = generateMoves(board);
     if (rawMoves.length === 0) {
-      return { score: board.inCheck(board.sideToMove) ? (isMaximizing ? -99999 + this.nodes : 99999 - this.nodes) : 0, move: null };
+      return { score: board.inCheck(board.sideToMove) ? (isMaximizing ? -99999 + ply : 99999 - ply) : 0, move: null };
     }
 
-    
     const ttMove = ttEntry ? rawMoves.find(m => m.from === (ttEntry.bestMove as any).from && m.to === (ttEntry.bestMove as any).to) : null;
-    const moves = sortMoves(board, rawMoves, depth, ttMove, this.killerMoves, this.historyMoves);
+    const moves = sortMoves(board, rawMoves, depth, ttMove, this.killerMoves, this.historyMoves, this.counterMoves, prevMove);
 
     let bestMove: Move | null = moves[0] || null;
     let i = 0;
@@ -178,18 +213,18 @@ export class ChessEngineSearch {
         let ev: number;
         // Principal Variation Search (PVS) + Late Move Reductions (LMR)
         if (i === 0) {
-            ev = this.alphaBeta(board, depth - 1, alpha, beta, false, evalFunc, true).score;
+            ev = this.alphaBeta(board, depth - 1, ply + 1, alpha, beta, false, evalFunc, true, m).score;
         } else {
             let d = depth - 1;
             // LMR condition
-            if (depth >= 3 && i >= 4 && !m.captured && (!true /* no easy check testing yet */)) {
+            if (depth >= 3 && i >= 3 && !m.captured && m.flags !== 2 && !board.inCheck(board.sideToMove)) {
                 d--;
             }
             // Null window search
-            ev = this.alphaBeta(board, d, alpha, alpha + 1, false, evalFunc, true).score;
+            ev = this.alphaBeta(board, d, ply + 1, alpha, alpha + 1, false, evalFunc, true, m).score;
             if (ev > alpha && ev < beta) {
                 // Re-search with full window
-                ev = this.alphaBeta(board, depth - 1, alpha, beta, false, evalFunc, true).score;
+                ev = this.alphaBeta(board, depth - 1, ply + 1, alpha, beta, false, evalFunc, true, m).score;
             }
         }
         
@@ -207,6 +242,12 @@ export class ChessEngineSearch {
             if (this.killerMoves[depth].length > 2) this.killerMoves[depth].pop();
             const historyKey = `${m.from}_${m.to}_${m.promotion || ''}`;
             this.historyMoves[historyKey] = (this.historyMoves[historyKey] || 0) + depth * depth;
+
+            // Store Countermove
+            if (prevMove) {
+              const prevKey = `${prevMove.from}_${prevMove.to}`;
+              this.counterMoves[prevKey] = m;
+            }
           }
           this.transTable.set(fenKey, depth, maxEval, 2, bestMove);
           break;
@@ -223,15 +264,15 @@ export class ChessEngineSearch {
         let ev: number;
         // PVS + LMR
         if (i === 0) {
-            ev = this.alphaBeta(board, depth - 1, alpha, beta, true, evalFunc, true).score;
+            ev = this.alphaBeta(board, depth - 1, ply + 1, alpha, beta, true, evalFunc, true, m).score;
         } else {
             let d = depth - 1;
-            if (depth >= 3 && i >= 4 && !m.captured && (!true /* no easy check testing yet */)) {
+            if (depth >= 3 && i >= 3 && !m.captured && m.flags !== 2 && !board.inCheck(board.sideToMove)) {
                 d--;
             }
-            ev = this.alphaBeta(board, d, beta - 1, beta, true, evalFunc, true).score;
+            ev = this.alphaBeta(board, d, ply + 1, beta - 1, beta, true, evalFunc, true, m).score;
             if (ev > alpha && ev < beta) {
-                ev = this.alphaBeta(board, depth - 1, alpha, beta, true, evalFunc, true).score;
+                ev = this.alphaBeta(board, depth - 1, ply + 1, alpha, beta, true, evalFunc, true, m).score;
             }
         }
         
@@ -249,6 +290,12 @@ export class ChessEngineSearch {
             if (this.killerMoves[depth].length > 2) this.killerMoves[depth].pop();
             const historyKey = `${m.from}_${m.to}_${m.promotion || ''}`;
             this.historyMoves[historyKey] = (this.historyMoves[historyKey] || 0) + depth * depth;
+
+            // Store Countermove
+            if (prevMove) {
+              const prevKey = `${prevMove.from}_${prevMove.to}`;
+              this.counterMoves[prevKey] = m;
+            }
           }
           this.transTable.set(fenKey, depth, minEval, 1, bestMove);
           break;

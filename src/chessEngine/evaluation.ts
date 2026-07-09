@@ -22,21 +22,7 @@ import {
   PST_KING_MIDDLE, 
   PST_KING_ENDGAME 
 } from './personalities';
-
-function getStringHash(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 31 + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash);
-}
-
-const popLSB = (bb: bigint): { sq: number; bb: bigint } => {
-  if (bb === 0n) return { sq: -1, bb: 0n };
-  const lsb = bb & -bb;
-  const sq = lsb.toString(2).length - 1;
-  return { sq, bb: bb & (bb - 1n) };
-};
+import { popLSB } from './bitboard';
 
 /**
  * High-performance NNUE-like evaluator relying solely on bitboards
