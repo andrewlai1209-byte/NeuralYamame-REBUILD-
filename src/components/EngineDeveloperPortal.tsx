@@ -9,7 +9,7 @@ import { ChessEngine } from '../engine';
 import { Chess } from 'chess.js';
 import { findBookMove } from '../openingBook';
 import { saveExperience } from '../lib/rlExperience';
-import { setBit, clearBit, toggleBit, popLSB, popCount, checkBit } from '../chessEngine/core';
+import { setBit, clearBit, toggleBit, popLSB, popCount, checkBit } from '../chessEngine/bitboard';
 import { verifyMoveGen } from '../chessEngine/perft';
 import { nnueEvaluator } from '../chessEngine/nnue';
 import { BitboardEngine, COLOR_WHITE, PIECE_PAWN } from '../chessEngine/board';

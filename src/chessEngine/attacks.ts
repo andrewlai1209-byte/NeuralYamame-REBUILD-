@@ -1,4 +1,4 @@
-import { setBit } from './core';
+import { setBit } from './bitboard';
 
 export const KNIGHT_ATTACKS: bigint[] = new Array(64).fill(0n);
 export const KING_ATTACKS: bigint[] = new Array(64).fill(0n);

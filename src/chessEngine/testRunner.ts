@@ -1,4 +1,4 @@
-import { setBit, clearBit, toggleBit, checkBit, popLSB, popCount } from './core';
+import { setBit, clearBit, toggleBit, checkBit, popLSB, popCount } from './bitboard';
 import { BitboardEngine, COLOR_WHITE, COLOR_BLACK, PIECE_PAWN } from './board';
 import { generateMoves } from './movegen';
 import { verifyMoveGen } from './perft';

@@ -1,4 +1,4 @@
-import { EMPTY, ALL, setBit, clearBit, toggleBit, checkBit, popLSB, popCount } from './core';
+import { EMPTY, ALL, setBit, clearBit, toggleBit, checkBit, popLSB, popCount } from './bitboard';
 import { KNIGHT_ATTACKS, KING_ATTACKS, PAWN_ATTACKS, getSliderAttacks } from './attacks';
 import { ZOBRIST_PIECE, ZOBRIST_SIDE, ZOBRIST_CASTLING, ZOBRIST_EP } from './zobrist';
 
