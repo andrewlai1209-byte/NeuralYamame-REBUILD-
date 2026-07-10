@@ -6,9 +6,6 @@
 import { Chess } from "chess.js";
 import { BitboardEngine } from "./chessEngine/board";
 import { EngineConfig, EnginePersonality, EnginePersonalityId } from './types';
-import { db } from './lib/firebase';
-import { doc, getDoc, updateDoc, increment, setDoc } from 'firebase/firestore';
-import { saveExperience } from './lib/rlExperience';
 import { findBookMove } from './openingBook';
 
 import { PERSONALITIES, TRAINING_PROFILES } from './chessEngine/personalities';
@@ -241,7 +238,12 @@ export class ChessEngine {
 
     // 4. Record experience asynchronously using local-first fail-safe buffers
     const sanMove = result.bestMove ? (result.bestMove.san || result.bestMove.toString()) : 'none';
-    saveExperience({ fen, bestMove: sanMove, score: result.score });
+    const isWorker = typeof window === 'undefined' && typeof self !== 'undefined';
+    if (!isWorker) {
+      import('./lib/rlExperience').then(({ saveExperience }) => {
+        saveExperience({ fen, bestMove: sanMove, score: result.score }).catch(() => {});
+      }).catch(() => {});
+    }
 
     return result;
   }
@@ -250,7 +252,14 @@ export class ChessEngine {
    * Save reinforcement learning global telemetry asynchronously
    */
   private async updateRlTelemetry() {
+    const isWorker = typeof window === 'undefined' && typeof self !== 'undefined';
+    if (isWorker) return;
+
     try {
+      const { db } = await import('./lib/firebase');
+      const { doc, getDoc, updateDoc, increment, setDoc } = await import('firebase/firestore');
+      if (!db) return;
+
       const docRef = doc(db, 'rl_experience', 'global');
       const docSnap = await getDoc(docRef);
       

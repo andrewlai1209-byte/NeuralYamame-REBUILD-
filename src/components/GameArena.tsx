@@ -410,7 +410,7 @@ export const GameArena: React.FC = () => {
     setIsEngineThinking(true);
     
     // Run engine using Web Worker to completely prevent UI blocking
-    const searchWorker = new Worker(new URL('../workers/search.worker.ts', import.meta.url));
+    const searchWorker = new Worker(new URL('../workers/search.worker.ts', import.meta.url), { type: 'module' });
     searchWorker.postMessage({
       fen: currentChess.fen(),
       config: config,

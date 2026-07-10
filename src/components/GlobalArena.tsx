@@ -311,7 +311,7 @@ export const GlobalArena: React.FC = () => {
 
     // Use our custom backend minimax engine under the hood to calculate opponent move!
     // This maintains excellent chess competence matching the opponent ELO E.g. Depth 3
-    const searchWorker = new Worker(new URL('../workers/search.worker.ts', import.meta.url));
+    const searchWorker = new Worker(new URL('../workers/search.worker.ts', import.meta.url), { type: 'module' });
     searchWorker.postMessage({
       fen: activeChess.fen(),
       config: {

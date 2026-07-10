@@ -51,7 +51,7 @@ export const LiveAnalysis: React.FC = () => {
       activeWorkerRef.current.terminate();
     }
 
-    const worker = new Worker(new URL('../workers/search.worker.ts', import.meta.url));
+    const worker = new Worker(new URL('../workers/search.worker.ts', import.meta.url), { type: 'module' });
     activeWorkerRef.current = worker;
 
     worker.postMessage({
