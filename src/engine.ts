@@ -95,13 +95,15 @@ export class ChessEngine {
     if (pieceCount <= 7) {
       try {
         let data: any = null;
-        if (typeof window === 'undefined') {
-          const response = await fetch(`https://tablebase.lichess.ovh/standard?fen=${encodeURIComponent(fen)}`);
+        const isClient = typeof window !== 'undefined' || (typeof self !== 'undefined' && self.location && self.location.origin);
+        if (isClient) {
+          const origin = typeof self !== 'undefined' && self.location ? self.location.origin : '';
+          const response = await fetch(`${origin}/api/syzygy?fen=${encodeURIComponent(fen)}`);
           if (response.ok) {
             data = await response.json();
           }
         } else {
-          const response = await fetch(`/api/syzygy?fen=${encodeURIComponent(fen)}`);
+          const response = await fetch(`https://tablebase.lichess.ovh/standard?fen=${encodeURIComponent(fen)}`);
           if (response.ok) {
             data = await response.json();
           }

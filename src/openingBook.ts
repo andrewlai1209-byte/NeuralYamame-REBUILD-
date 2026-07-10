@@ -289,6 +289,7 @@ export class OpeningTrieNode {
 
 export class OpeningTrie {
   root: OpeningTrieNode = new OpeningTrieNode();
+  private lookupCache: Map<string, OpeningBookLine | null> = new Map();
 
   constructor() {
     this.build();
@@ -312,20 +313,24 @@ export class OpeningTrie {
   }
 
   public findMove(history: string[]): OpeningBookLine | null {
+    const cacheKey = history.join(',');
+    if (this.lookupCache.has(cacheKey)) {
+      return this.lookupCache.get(cacheKey) || null;
+    }
+
     let current = this.root;
     for (const move of history) {
       const lowerMove = move.toLowerCase();
       if (!current.children[lowerMove]) {
+        this.lookupCache.set(cacheKey, null);
         return null;
       }
       current = current.children[lowerMove];
     }
 
-    if (current.line) {
-      return current.line;
-    }
-
-    return this.findBestLeaf(current, history.length);
+    const result = current.line ? current.line : this.findBestLeaf(current, history.length);
+    this.lookupCache.set(cacheKey, result);
+    return result;
   }
 
   private findBestLeaf(node: OpeningTrieNode, depth: number): OpeningBookLine | null {

@@ -213,6 +213,12 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  useEffect(() => {
+    import('./lib/rlExperience').then(({ syncLocalBuffer }) => {
+      syncLocalBuffer().catch(() => {});
+    });
+  }, []);
+
   const getTrendEvaluation = () => {
     if (metricsHistory.length < 5) return { text: 'STABLE', direction: 'stable' };
     const last5 = metricsHistory.slice(-5);

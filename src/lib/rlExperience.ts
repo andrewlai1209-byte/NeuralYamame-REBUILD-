@@ -59,8 +59,32 @@ export async function saveExperience(data: any) {
     const currentBuffer = getLocalBuffer();
     const updatedBuffer = currentBuffer.filter(item => item.timestamp !== record.timestamp);
     saveLocalBuffer(updatedBuffer);
+    
+    // Proactively attempt syncing remaining offline-buffered items
+    setTimeout(() => {
+      syncLocalBuffer().catch(() => {});
+    }, 100);
   } catch (e) {
     // Graceful logging without disrupting search thread
     console.log("Saved experience locally (Running offline or sandbox restriction).");
   }
+}
+
+/**
+ * Syncs any pending offline-buffered experiences to the cloud database
+ */
+export async function syncLocalBuffer() {
+  if (!db) return;
+  const buffer = getLocalBuffer();
+  if (buffer.length === 0) return;
+
+  const remaining: any[] = [];
+  for (const record of buffer) {
+    try {
+      await addDoc(collection(db, 'rl_experience'), record);
+    } catch (err) {
+      remaining.push(record);
+    }
+  }
+  saveLocalBuffer(remaining);
 }
