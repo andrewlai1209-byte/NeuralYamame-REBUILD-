@@ -766,7 +766,7 @@ export const GameArena: React.FC = () => {
               highlightSquares={highlightSquares}
               engineLastMoveSquares={engineLastMoveSquares}
             />
-            {duelMode && <div className="absolute inset-0 z-10 bg-slate-900/90"><EngineDuelArena config1={config} config2={config} /></div>}
+            {duelMode && <div className="absolute inset-0 z-10 bg-slate-950/95 overflow-y-auto"><EngineDuelArena config1={config} config2={config} onClose={() => setDuelMode(false)} /></div>}
             {gameResult && (
               <div className="absolute inset-0 bg-slate-950/80 rounded-xl backdrop-blur-sm flex flex-col items-center justify-center p-6 z-30 border border-slate-700/50 shadow-2xl">
                 <AlertTriangle className="w-12 h-12 text-amber-400 mb-3 animate-pulse" />
