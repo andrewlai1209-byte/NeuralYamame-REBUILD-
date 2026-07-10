@@ -147,6 +147,10 @@ export class ChessEngineSearch {
     }
 
     if (depth <= 0) {
+      if (board.inCheck(board.sideToMove) && ply < (this.config.maxDepth || 3) + 4) {
+        // Check Extension: search 1 ply deeper instead of dropping straight into quiescence search
+        return this.alphaBeta(board, 1, ply, alpha, beta, isMaximizing, evalFunc, false, prevMove);
+      }
       const score = this.quiesce(board, alpha, beta, isMaximizing, evalFunc);
       return { score, move: null };
     }
@@ -310,47 +314,56 @@ export class ChessEngineSearch {
   // Quiescence search limits horizon effect
   private quiesce(board: BitboardEngine, alpha: number, beta: number, isMaximizing: boolean, evalFunc: (b: BitboardEngine) => number): number {
     this.nodes++;
-    const standPat = evalFunc(board);
+    
+    const inCheck = board.inCheck(board.sideToMove);
+    const standPat = inCheck ? -99999 : evalFunc(board);
 
-    if (isMaximizing) {
-      if (standPat >= beta) return beta;
-      if (alpha < standPat) alpha = standPat;
-    } else {
-      if (standPat <= alpha) return alpha;
-      if (beta > standPat) beta = standPat;
+    if (!inCheck) {
+      if (isMaximizing) {
+        if (standPat >= beta) return beta;
+        if (alpha < standPat) alpha = standPat;
+      } else {
+        if (standPat <= alpha) return alpha;
+        if (beta > standPat) beta = standPat;
+      }
     }
 
     const rawMoves = generateMoves(board);
-    const captures = rawMoves.filter(m => m.captured);
+    // If in check, we must search all moves to find an escape. Otherwise, only search captures.
+    const movesToTry = inCheck ? rawMoves : rawMoves.filter(m => m.captured);
     
-    // Sort captures by MVV-LVA logic internally inside Quiescence
-    captures.sort((a, b) => {
+    // Sort moves to try by MVV-LVA logic internally
+    movesToTry.sort((a, b) => {
       const pVals: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-      const valA = (pVals[a.captured!] || 0) - (pVals[a.piece] || 0);
-      const valB = (pVals[b.captured!] || 0) - (pVals[b.piece] || 0);
+      const valA = a.captured ? ((pVals[a.captured] || 0) * 10 - (pVals[a.piece] || 0)) : 0;
+      const valB = b.captured ? ((pVals[b.captured] || 0) * 10 - (pVals[b.piece] || 0)) : 0;
       return valB - valA;
     });
 
     if (isMaximizing) {
-      for (const m of captures) {
+      let val = standPat;
+      for (const m of movesToTry) {
         board.makeMove(m);
         const ev = this.quiesce(board, alpha, beta, false, evalFunc);
         board.undoMove(m);
 
         if (ev >= beta) return beta;
         if (ev > alpha) alpha = ev;
+        val = Math.max(val, ev);
       }
-      return alpha;
+      return inCheck && movesToTry.length === 0 ? -99999 : alpha;
     } else {
-      for (const m of captures) {
+      let val = standPat;
+      for (const m of movesToTry) {
         board.makeMove(m);
         const ev = this.quiesce(board, alpha, beta, true, evalFunc);
         board.undoMove(m);
 
         if (ev <= alpha) return alpha;
         if (ev < beta) beta = ev;
+        val = Math.min(val, ev);
       }
-      return beta;
+      return inCheck && movesToTry.length === 0 ? 99999 : beta;
     }
   }
 

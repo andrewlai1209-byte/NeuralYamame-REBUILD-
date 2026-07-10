@@ -319,7 +319,8 @@ export const GlobalArena: React.FC = () => {
         personality: opponent?.personality === 'trashtalker' ? 'tactical' : 'positional',
         evalMode: 'hybrid'
       },
-      trainingProgress: 0.75
+      trainingProgress: 0.75,
+      history: activeChess.history()
     });
 
     searchWorker.onmessage = (e) => {

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from './Chessboard';
 import { ChessEngine, PERSONALITIES } from '../engine';
@@ -40,16 +40,30 @@ export const LiveAnalysis: React.FC = () => {
     isAnalyzing: false
   });
 
+  const activeWorkerRef = useRef<Worker | null>(null);
+
   // Run engine analysis on the position
   const runAnalysis = (currentChess: Chess) => {
     setAnalysis(prev => ({ ...prev, isAnalyzing: true }));
     
-    // Defer to prevent lockups
-    setTimeout(async () => {
-      try {
-        const engineInstance = new ChessEngine(config);
-        const res = await engineInstance.search(currentChess.fen(), 0.85, currentChess.history());
-        
+    // Terminate any existing running worker
+    if (activeWorkerRef.current) {
+      activeWorkerRef.current.terminate();
+    }
+
+    const worker = new Worker(new URL('../workers/search.worker.ts', import.meta.url));
+    activeWorkerRef.current = worker;
+
+    worker.postMessage({
+      fen: currentChess.fen(),
+      config: config,
+      trainingProgress: 0.85,
+      history: currentChess.history()
+    });
+
+    worker.onmessage = (e) => {
+      const res = e.data;
+      if (activeWorkerRef.current === worker) {
         setAnalysis({
           depth: res.depth,
           selDepth: res.depth + 1,
@@ -79,16 +93,30 @@ export const LiveAnalysis: React.FC = () => {
         } else {
           setPolicyMap({});
         }
-      } catch (e) {
-        console.error('Analysis error:', e);
-        setAnalysis(prev => ({ ...prev, isAnalyzing: false }));
+
+        activeWorkerRef.current = null;
       }
-    }, 100);
+      worker.terminate();
+    };
+
+    worker.onerror = (err) => {
+      console.error('Analysis worker error:', err);
+      setAnalysis(prev => ({ ...prev, isAnalyzing: false }));
+      if (activeWorkerRef.current === worker) {
+        activeWorkerRef.current = null;
+      }
+      worker.terminate();
+    };
   };
 
   // Run initial analysis on load
   useEffect(() => {
     runAnalysis(chess);
+    return () => {
+      if (activeWorkerRef.current) {
+        activeWorkerRef.current.terminate();
+      }
+    };
   }, [config.personality, config.evalMode, config.maxDepth]);
 
   const handleMove = (move: { from: string; to: string; promotion?: string }) => {
