@@ -139,108 +139,125 @@ export const EngineDuelArena: React.FC<EngineDuelArenaProps> = ({ config1, confi
       const activeConfig = turnColor === 'w' ? whiteConfig : blackConfig;
       const activeStyle = turnColor === 'w' ? whiteStyle : blackStyle;
 
-      // Instantiate a fresh ChessEngine with the selected configurations
-      const engine = new ChessEngine({
-        ...activeConfig,
-        leezaThinkingThreads: activeConfig.evalMode === 'leela_mcts' || activeConfig.evalMode === 'leeza_mcts' ? 4 : undefined
+      // Instantiate search worker
+      const searchWorker = new Worker(new URL('../workers/search.worker.ts', import.meta.url), { type: 'module' });
+
+      searchWorker.postMessage({
+        fen: currentChess.fen(),
+        config: {
+          ...activeConfig,
+          leezaThinkingThreads: activeConfig.evalMode === 'leela_mcts' || activeConfig.evalMode === 'leeza_mcts' ? 4 : undefined
+        },
+        trainingProgress: 0.75,
+        history: currentChess.history()
       });
 
-      // Execute search
-      const result = await engine.search(currentChess.fen(), 0.75, currentChess.history());
+      searchWorker.onmessage = (e) => {
+        const result = e.data;
+        searchWorker.terminate();
 
-      if (result.bestMove) {
-        let bestMoveStr = '';
-        let fromSquare = '';
-        let toSquare = '';
+        if (result.bestMove) {
+          let bestMoveStr = '';
+          let fromSquare = '';
+          let toSquare = '';
 
-        const tempChess = new Chess(currentChess.fen());
-        let moveObj;
+          const tempChess = new Chess(currentChess.fen());
+          let moveObj;
 
-        if (typeof result.bestMove === 'string') {
-          moveObj = tempChess.move(result.bestMove);
-          bestMoveStr = result.bestMove;
-        } else {
-          moveObj = tempChess.move({
-            from: result.bestMove.from,
-            to: result.bestMove.to,
-            promotion: result.bestMove.promotion
-          });
-          bestMoveStr = moveObj.san;
-        }
-
-        fromSquare = moveObj.from;
-        toSquare = moveObj.to;
-
-        // Commit move to currentChess
-        currentChess.move(bestMoveStr);
-
-        // Highlight squares
-        setHighlightSquares([fromSquare, toSquare]);
-        setEngineLastMoveSquares([fromSquare, toSquare]);
-
-        // Calculate and normalize score
-        const evalScore = result.score;
-        const normalizedScore = turnColor === 'w' ? evalScore : -evalScore; // + is white, - is black
-
-        // Convert score to White Win Probability (p1)
-        // formula: P(Win) = 1 / (1 + 10^(-cp / 400))
-        let p1 = Math.round((1 / (1 + Math.pow(10, -normalizedScore / 400))) * 100);
-        if (p1 < 5) p1 = 5;
-        if (p1 > 95) p1 = 95;
-        const p2 = 100 - p1;
-
-        // Update stats
-        const telemetry = {
-          nodes: result.nodes,
-          depth: result.depth || activeConfig.maxDepth,
-          nps: result.nps,
-          pv: result.pv || [bestMoveStr],
-          score: evalScore,
-          opening: result.bookOpeningName || (moveList.length < 10 ? '開局庫計算中' : '中局深層探索')
-        };
-
-        if (turnColor === 'w') {
-          setWhiteStats(telemetry);
-        } else {
-          setBlackStats(telemetry);
-        }
-
-        // Add to graph history
-        const newPly = currentChess.history().length;
-        setProbs(prev => [
-          ...prev,
-          { ply: newPly, move: `${Math.ceil(newPly / 2)}${turnColor === 'w' ? '.' : '...'}${bestMoveStr}`, p1, p2 }
-        ]);
-
-        // Add to move list
-        setMoveList(prev => [
-          ...prev,
-          {
-            san: bestMoveStr,
-            from: fromSquare,
-            to: toSquare,
-            turn: Math.ceil(newPly / 2),
-            color: turnColor
+          if (typeof result.bestMove === 'string') {
+            moveObj = tempChess.move(result.bestMove);
+            bestMoveStr = result.bestMove;
+          } else {
+            moveObj = tempChess.move({
+              from: result.bestMove.from,
+              to: result.bestMove.to,
+              promotion: result.bestMove.promotion
+            });
+            bestMoveStr = moveObj.san;
           }
-        ]);
 
-        // Re-set Chess instance to force re-render
-        setChess(new Chess(currentChess.fen()));
+          fromSquare = moveObj.from;
+          toSquare = moveObj.to;
 
-        // Check if game has ended
-        if (currentChess.isGameOver()) {
+          // Commit move to currentChess
+          currentChess.move(bestMoveStr);
+
+          // Highlight squares
+          setHighlightSquares([fromSquare, toSquare]);
+          setEngineLastMoveSquares([fromSquare, toSquare]);
+
+          // Calculate and normalize score
+          const evalScore = result.score;
+          const normalizedScore = turnColor === 'w' ? evalScore : -evalScore; // + is white, - is black
+
+          // Convert score to White Win Probability (p1)
+          // formula: P(Win) = 1 / (1 + 10^(-cp / 400))
+          let p1 = Math.round((1 / (1 + Math.pow(10, -normalizedScore / 400))) * 100);
+          if (p1 < 5) p1 = 5;
+          if (p1 > 95) p1 = 95;
+          const p2 = 100 - p1;
+
+          // Update stats
+          const telemetry = {
+            nodes: result.nodes,
+            depth: result.depth || activeConfig.maxDepth,
+            nps: result.nps,
+            pv: result.pv || [bestMoveStr],
+            score: evalScore,
+            opening: result.bookOpeningName || (moveList.length < 10 ? '開局庫計算中' : '中局深層探索')
+          };
+
+          if (turnColor === 'w') {
+            setWhiteStats(telemetry);
+          } else {
+            setBlackStats(telemetry);
+          }
+
+          // Add to graph history
+          const newPly = currentChess.history().length;
+          setProbs(prev => [
+            ...prev,
+            { ply: newPly, move: `${Math.ceil(newPly / 2)}${turnColor === 'w' ? '.' : '...'}${bestMoveStr}`, p1, p2 }
+          ]);
+
+          // Add to move list
+          setMoveList(prev => [
+            ...prev,
+            {
+              san: bestMoveStr,
+              from: fromSquare,
+              to: toSquare,
+              turn: Math.ceil(newPly / 2),
+              color: turnColor
+            }
+          ]);
+
+          // Re-set Chess instance to force re-render
+          setChess(new Chess(currentChess.fen()));
+
+          // Check if game has ended
+          if (currentChess.isGameOver()) {
+            determineGameResult(currentChess);
+            setIsPlaying(false);
+          }
+        } else {
+          // Fallback if search returns nothing
           determineGameResult(currentChess);
           setIsPlaying(false);
         }
-      } else {
-        // Fallback if search returns nothing
-        determineGameResult(currentChess);
+        setIsCalculating(false);
+      };
+
+      searchWorker.onerror = (err) => {
+        console.error('Worker error in engine duel move:', err);
+        searchWorker.terminate();
         setIsPlaying(false);
-      }
+        setIsCalculating(false);
+      };
+
     } catch (err) {
       console.error('Error in engine duel move:', err);
       setIsPlaying(false);
-    } finally {
       setIsCalculating(false);
     }
   };
