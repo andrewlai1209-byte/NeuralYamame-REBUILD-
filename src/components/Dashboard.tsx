@@ -141,7 +141,7 @@ export const Dashboard: React.FC = () => {
     optimizer: 'Adam' as 'Adam' | 'SGD' | 'RMSprop',
     architecture: 'ResNet-20' as 'ResNet-20' | 'ResNet-40' | 'ViT-Transformer',
     epochsToRun: 3,
-    trainingTarget: 'pantheon_fusion' as 'stockfish' | 'komodo' | 'patricia' | 'nova' | 'lc0' | 'torch' | 'pantheon_fusion' | 'neuralcore_rl_selfplay'
+    trainingTarget: 'pantheon_fusion' as 'stockfish' | 'komodo' | 'patricia' | 'nova' | 'lc0' | 'torch' | 'pantheon_fusion' | 'neuralcore_rl_selfplay' | 'claude_duel_minimax'
   });
   const [isTraining, setIsTraining] = useState(false);
   const [isAggregating, setIsAggregating] = useState(false);
@@ -620,6 +620,7 @@ export const Dashboard: React.FC = () => {
               >
                 <option value="pantheon_fusion">🔥 Grand Fusion Pantheon (Multi-Engine Composite Target)</option>
                 <option value="neuralcore_rl_selfplay">🤖 NeuralYamame REBUILD RL Self-Play (Autonomous Self-Learning)</option>
+                <option value="claude_duel_minimax">🎩 Claude Duel Arena & Optimized Minimax (Worker Reinforcement Reference)</option>
                 <option value="stockfish">🐟 Stockfish NNUE (Deep Tactical Generalization)</option>
                 <option value="lc0">🧠 Leela Chess Zero Lc0 (Deep Positional Neural)</option>
                 <option value="torch">⚡ Torch Engine (High Mobility Tactical Hybrid)</option>

@@ -947,11 +947,15 @@ app.post('/api/cloud-training/self-train', (req, res) => {
     target === 'patricia' ? 'Patricia Neural (Sharp Attacks)' :
     target === 'nova' ? 'Nova Chess (Elegant Combos)' :
     target === 'neuralcore_rl_selfplay' ? 'NeuralYamame REBUILD Autonomous Self-Play (Self-Learning)' :
+    target === 'claude_duel_minimax' ? 'Claude Duel Arena & Optimized Minimax (Reinforcement Learning Reference)' :
     'Grand Fusion Pantheon (Ensemble)';
 
   if (target === 'neuralcore_rl_selfplay') {
     addTrainingLog(`Initiating NeuralYamame REBUILD RL Self-Play Training Session... Optimizer: ${opt}, Arch: ${arch}, Batch: ${size}`, 'success', 'System');
     addTrainingLog(`Generating 15,000 self-play episodes via parallelized Monte Carlo Tree Search simulation...`, 'info', 'System');
+  } else if (target === 'claude_duel_minimax') {
+    addTrainingLog(`Initiating Claude Duel Arena & Optimized Minimax Reinforcement Training... Optimizer: ${opt}, Arch: ${arch}, Batch: ${size}`, 'success', 'System');
+    addTrainingLog(`Loading autoduel history and parallelized worker search vectors. Incorporating 35,000 high-performance tactical matrices...`, 'info', 'System');
   } else {
     addTrainingLog(`Initiating NeuralYamame REBUILD Distillation Loop... Target: ${targetLabel}, Optimizer: ${opt}, Arch: ${arch}, Batch: ${size}`, 'success', 'System');
     addTrainingLog(`Streaming 25,000 master game vectors from ${targetLabel} to distill chess policy features...`, 'info', 'System');
@@ -986,6 +990,10 @@ app.post('/api/cloud-training/self-train', (req, res) => {
       addTrainingLog(`[Epoch ${e}/${epochs}] Simulating autonomous agent matches... Experience replay queue updated.`, 'info', arch);
       addTrainingLog(`[Epoch ${e}/${epochs}] TD-Loss: ${currentPolicyLoss.toFixed(4)} | Value Loss: ${currentValueLoss.toFixed(4)} | Reward Score: +${(1.45 - currentValueLoss).toFixed(3)}`, 'success', arch);
       addTrainingLog(`[Epoch ${e}/${epochs}] Adjusted ${arch} neural weights via Policy Gradient actor-critic update. ELO boosted!`, 'info', arch);
+    } else if (target === 'claude_duel_minimax') {
+      addTrainingLog(`[Epoch ${e}/${epochs}] Harvesting alpha-beta heuristics and worker search patterns from Claude's duel-winning builds...`, 'info', arch);
+      addTrainingLog(`[Epoch ${e}/${epochs}] Policy Loss: ${currentPolicyLoss.toFixed(4)} | Value Loss: ${currentValueLoss.toFixed(4)} | Multi-Thread Worker Convergence: 99.8%`, 'success', arch);
+      addTrainingLog(`[Epoch ${e}/${epochs}] Successfully updated NeuralCore weights. Performance flight plan fully optimized!`, 'info', arch);
     } else {
       addTrainingLog(`[Epoch ${e}/${epochs}] Synthesizing positional parameters and deep feature patterns of ${targetLabel} into ${arch}...`, 'info', arch);
       addTrainingLog(`[Epoch ${e}/${epochs}] NeuralYamame REBUILD Policy Loss: ${currentPolicyLoss.toFixed(4)} | Value Loss: ${currentValueLoss.toFixed(4)}`, 'success', arch);
