@@ -3,7 +3,7 @@
 
 # NeuralCore, a strong and advanced chess engine...
 
-This chess engine is wipe coded by different AIs. Including Google AI Studio、Claude、ChatGPT、OpenCode etc. 
+This chess engine is vibe coded by different AIs. Including Google AI Studio、Claude、ChatGPT、OpenCode etc. 
 
 Let's see if this can actually beat Stockfish one day. Even though it's almost impossible lol. 
 
