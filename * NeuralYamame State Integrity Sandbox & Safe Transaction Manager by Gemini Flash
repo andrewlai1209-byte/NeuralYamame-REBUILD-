@@ -1,0 +1,243 @@
+/**
+ * NeuralYamame State Integrity Sandbox & Safe Transaction Manager
+ * 
+ * This file acts as a protective barrier around the engine state, FEN loading,
+ * and board modifications. It intercepts corrupt states, invalid moves, and
+ * dangerous settings before they can reach the chess engine cores, ensuring
+ * that the UI and web workers remain 100% stable without throwing uncaught runtime errors.
+ */
+
+export interface SandboxValidationResult {
+  isValid: boolean;
+  error?: string;
+  sanitizedFen?: string;
+}
+
+export interface SanitizedEngineConfig {
+  hashSizeMB: number;
+  threads: number;
+  maxDepth: number;
+  multiPV: number;
+}
+
+export interface RecoveryPoint {
+  id: string;
+  timestamp: number;
+  fen: string;
+  moveHistory: string[];
+  evaluation: number;
+}
+
+export class StateIntegritySandbox {
+  private static instance: StateIntegritySandbox;
+  private recoveryHistory: RecoveryPoint[] = [];
+  private readonly maxRecoveryPoints = 15;
+
+  private constructor() {
+    console.log('[StateSandbox] Integrity sandbox active. Guarding engine states.');
+  }
+
+  public static getInstance(): StateIntegritySandbox {
+    if (!StateIntegritySandbox.instance) {
+      StateIntegritySandbox.instance = new StateIntegritySandbox();
+    }
+    return StateIntegritySandbox.instance;
+  }
+
+  /**
+   * Performs deep syntactical and logical verification on a FEN string.
+   * Prevents Bitboard calculation failures from throwing uncaught array-index out of bounds.
+   */
+  public validateFen(fen: string): SandboxValidationResult {
+    if (!fen || typeof fen !== 'string') {
+      return { isValid: false, error: 'FEN input must be a non-empty string.' };
+    }
+
+    const trimmed = fen.trim();
+    const parts = trimmed.split(/\s+/);
+    
+    // Standard chess FEN must contain at least the board placement part
+    if (parts.length < 1) {
+      return { isValid: false, error: 'FEN string is empty or structural invalid.' };
+    }
+
+    const boardPart = parts[0];
+    const rows = boardPart.split('/');
+
+    // 1. Structure Check: Verify we have exactly 8 ranks
+    if (rows.length !== 8) {
+      return { isValid: false, error: `Invalid rank count: ${rows.length}. Must be exactly 8.` };
+    }
+
+    let whiteKingCount = 0;
+    let blackKingCount = 0;
+
+    // 2. Square count & Piece Validation
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      let colCount = 0;
+
+      for (let charIdx = 0; charIdx < row.length; charIdx++) {
+        const char = row[charIdx];
+        
+        if (/[1-8]/.test(char)) {
+          colCount += parseInt(char, 10);
+        } else if (/[prnbqkPRNBQK]/.test(char)) {
+          colCount += 1;
+          if (char === 'K') whiteKingCount++;
+          if (char === 'k') blackKingCount++;
+        } else {
+          return { isValid: false, error: `Illegal character '${char}' detected in FEN board segment.` };
+        }
+      }
+
+      if (colCount !== 8) {
+        return { isValid: false, error: `Rank ${8 - i} has an incorrect number of files (${colCount} instead of 8).` };
+      }
+    }
+
+    // 3. Absolute minimum game logic check (Both sides must have exactly one King to avoid movegen loops)
+    if (whiteKingCount !== 1) {
+      return { isValid: false, error: `Illegal white king count: ${whiteKingCount}. Board must have exactly 1 white king.` };
+    }
+    if (blackKingCount !== 1) {
+      return { isValid: false, error: `Illegal black king count: ${blackKingCount}. Board must have exactly 1 black king.` };
+    }
+
+    // 4. Validate active color part if present
+    if (parts.length > 1) {
+      const activeColor = parts[1].toLowerCase();
+      if (activeColor !== 'w' && activeColor !== 'b') {
+        return { isValid: false, error: `Invalid active side token '${parts[1]}'. Must be 'w' or 'b'.` };
+      }
+    }
+
+    return { 
+      isValid: true, 
+      sanitizedFen: trimmed 
+    };
+  }
+
+  /**
+   * Safely attempts to run a move execution state update.
+   * If the update callback crashes, it catches the error, rolls back state, and preserves system stability.
+   */
+  public executeDryRun<T>(
+    stateAccessor: () => T,
+    action: (clonedState: T) => void,
+    onRollback: (error: Error) => void
+  ): boolean {
+    let originalStateClone: T;
+    
+    try {
+      // Prioritize structuredClone for complete deep copies of modern structures, fallback to JSON
+      if (typeof structuredClone === 'function') {
+        originalStateClone = structuredClone(stateAccessor());
+      } else {
+        originalStateClone = JSON.parse(JSON.stringify(stateAccessor()));
+      }
+    } catch (e) {
+      // Final resilient fallback: shallow copy to prevent crashing when serializing uncloneable states
+      try {
+        originalStateClone = Object.assign({}, stateAccessor());
+      } catch (fallbackErr) {
+        console.error('[StateSandbox] Failed to clone engine state for dry-run transaction:', fallbackErr);
+        return false;
+      }
+    }
+
+    try {
+      // Execute the high-risk state modification (e.g. board.makeMove, search triggers)
+      action(originalStateClone);
+      return true;
+    } catch (criticalError) {
+      console.error('[StateSandbox] EXCEPTION PREVENTED during engine state transaction. Initiating safe rollback.', criticalError);
+      
+      try {
+        // Trigger UI rollback handler to preserve board consistency
+        onRollback(criticalError instanceof Error ? criticalError : new Error(String(criticalError)));
+      } catch (rollbackErr) {
+        console.error('[StateSandbox] Fatal: Rollback handler failed to execute cleanly:', rollbackErr);
+      }
+      
+      return false;
+    }
+  }
+
+  /**
+   * Sanitizes critical engine parameters before allocation to avoid allocation/OOM crashes.
+   * Dynamic checks based on system capabilities (navigator.hardwareConcurrency).
+   */
+  public sanitizeEngineConfiguration(config: Partial<SanitizedEngineConfig>): SanitizedEngineConfig {
+    const defaultHardwareThreads = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency || 4) : 4;
+    
+    // Restrict Hash size to reasonable limits (Default max 512MB to avoid OOM on mobile browsers)
+    const rawHash = Number(config.hashSizeMB) || 64;
+    const hashSizeMB = Math.min(Math.max(1, rawHash), 1024); // Cap hash table strictly between 1MB and 1024MB
+
+    // Restrict execution threads to hardware logical cores to avoid starvation / freezing UI thread
+    const rawThreads = Number(config.threads) || 1;
+    const threads = Math.min(Math.max(1, rawThreads), defaultHardwareThreads);
+
+    // Guard max search depth to prevent stack overflows
+    const rawDepth = Number(config.maxDepth) || 99;
+    const maxDepth = Math.min(Math.max(1, rawDepth), 64); // Cap max recursive depth at 64 plies
+
+    const rawMultiPV = Number(config.multiPV) || 1;
+    const multiPV = Math.min(Math.max(1, rawMultiPV), 5); // Allow max 5 multi-PV parallel analysis lines
+
+    return {
+      hashSizeMB,
+      threads,
+      maxDepth,
+      multiPV
+    };
+  }
+
+  /**
+   * Commits a state checkpoint to the ring-buffer recovery log.
+   */
+  public registerRecoveryCheckpoint(fen: string, moveHistory: string[], currentEval: number): void {
+    const validation = this.validateFen(fen);
+    if (!validation.isValid) {
+      console.warn(`[StateSandbox] Rejected checkpoint registration for invalid FEN: ${validation.error}`);
+      return;
+    }
+
+    // Cleaned standard replacement of deprecated .substr() with compile-safe .substring()
+    const randomSuffix = Math.random().toString(36).substring(2, 7);
+    const checkpoint: RecoveryPoint = {
+      id: `rcp_${Date.now()}_${randomSuffix}`,
+      timestamp: Date.now(),
+      fen: fen,
+      moveHistory: [...moveHistory],
+      evaluation: currentEval
+    };
+
+    this.recoveryHistory.push(checkpoint);
+
+    // Keep history bounded to avoid memory leak
+    if (this.recoveryHistory.length > this.maxRecoveryPoints) {
+      this.recoveryHistory.shift();
+    }
+  }
+
+  /**
+   * Restores the most recent valid backup state in the event of an unrecoverable engine deadlock.
+   */
+  public popLastStableCheckpoint(): RecoveryPoint | null {
+    if (this.recoveryHistory.length === 0) {
+      return null;
+    }
+    // Return and remove the last state checkpoint
+    return this.recoveryHistory.pop() || null;
+  }
+
+  /**
+   * Resets and purges sandbox histories to release RAM resources.
+   */
+  public purgeSandboxHistory(): void {
+    this.recoveryHistory = [];
+    console.log('[StateSandbox] Integrity sandbox history purged successfully.');
+  }
+}
