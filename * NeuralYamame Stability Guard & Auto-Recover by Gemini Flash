@@ -1,0 +1,335 @@
+/**
+ * NeuralYamame Stability Guard & Auto-Recovery System
+ * 
+ * This file provides robust runtime monitoring, OOM protection, 
+ * worker crash recovery, and state preservation to keep the engine stable.
+ * Debugged and optimized for Web Worker environment support and TS compliance.
+ */
+
+
+export interface StabilityConfig {
+  maxMemoryThresholdMB: number; // Prevent OOM by clearing TT/caches
+  workerTimeoutMS: number;      // Max allowed time for worker response during search
+  stateBackupIntervalMS: number; // Frequency to auto-save application state
+  enableGlobalInterceptors: boolean; // Intercept unhandled errors
+}
+
+export interface BackupPayload {
+  timestamp: number;
+  gameState: any;
+  engineConfig: any;
+  activeMatchData?: any;
+}
+
+
+export class StabilityGuard {
+  private static instance: StabilityGuard;
+  private config: StabilityConfig;
+  private workerHeartbeats: Map<string, number> = new Map();
+  private workerTimers: Map<string, any> = new Map(); // Fixed: changed NodeJS.Timeout to any for browser/worker TS compatibility
+  private stateBackupTimer: any = null;              // Fixed: changed NodeJS.Timeout to any
+  private memoryMonitorTimer: any = null;
+  private fallbackModeActive: boolean = false;
+  private errorCount: number = 0;
+  private readonly maxAllowedErrors = 10;
+  private memoryBackupCache: string | null = null;   // Fixed: Fallback in-memory cache for restricted private browsing localStorage
+
+  private constructor(customConfig?: Partial<StabilityConfig>) {
+    this.config = {
+      maxMemoryThresholdMB: 512, // Defensive default limit for browser memory allocation
+      workerTimeoutMS: 15000,     // 15 seconds search timeout before initiating recovery
+      stateBackupIntervalMS: 10000, // Backup every 10 seconds
+      enableGlobalInterceptors: true,
+      ...customConfig
+    };
+
+    this.setupGlobalInterceptors();
+    this.startStateBackupLoop();
+    this.startMemoryMonitor();
+  }
+
+  /**
+   * Safely fetches the active global context (window, worker self, or globalThis)
+   */
+  private getGlobalContext(): any {
+    if (typeof globalThis !== 'undefined') return globalThis;
+    if (typeof window !== 'undefined') return window;
+    if (typeof self !== 'undefined') return self;
+    return {};
+  }
+
+  /**
+   * Get the singleton instance of the Stability Guard.
+   */
+  public static getInstance(config?: Partial<StabilityConfig>): StabilityGuard {
+    if (!StabilityGuard.instance) {
+      StabilityGuard.instance = new StabilityGuard(config);
+    }
+    return StabilityGuard.instance;
+  }
+
+
+  /**
+   * Safe-guard the active execution context from unhandled promise rejections and global errors.
+   * Fixed: Added environmental checks to safely run inside Web Workers.
+   */
+  private setupGlobalInterceptors(): void {
+    if (!this.config.enableGlobalInterceptors) return;
+    
+    const context = this.getGlobalContext();
+
+    // Setup window or self (worker) error listeners defensively
+    if (context && typeof context.addEventListener === 'function') {
+      context.addEventListener('error', (event: ErrorEvent) => {
+        this.handleGenericError('GlobalError', {
+          message: event.message,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          error: event.error
+        });
+      });
+
+      context.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+        this.handleGenericError('UnhandledRejection', { reason: event.reason });
+        // Prevent standard console red-noise crash indicators when debugging context is safe
+        event.preventDefault();
+      });
+
+      console.log('[StabilityGuard] Global exception barriers armed and ready for current context.');
+    } else {
+      // Fallback for environment without standard event listener API
+      if (context) {
+        context.onerror = (message: any, source: any, lineno: any, colno: any, error: any) => {
+          this.handleGenericError('LegacyGlobalError', { message, source, lineno, colno, error });
+          return true;
+        };
+      }
+    }
+  }
+
+
+  /**
+   * Periodically monitors performance memory metrics (if supported by browser/environment).
+   * Triggers proactive cache garbage collection to prevent Out-of-Memory crashes.
+   */
+  private startMemoryMonitor(): void {
+    const context = this.getGlobalContext();
+    if (!context || !context.performance) return;
+
+    if (this.memoryMonitorTimer) clearInterval(this.memoryMonitorTimer);
+
+    this.memoryMonitorTimer = setInterval(() => {
+      // Safe guard against non-Chrome environments where performance.memory is undefined
+      const memory = (context.performance as any).memory;
+      if (memory) {
+        const usedJSHeapSizeMB = memory.usedJSHeapSize / 1024 / 1024;
+        if (usedJSHeapSizeMB > this.config.maxMemoryThresholdMB) {
+          console.warn(`[StabilityGuard] Memory usage alert: ${usedJSHeapSizeMB.toFixed(2)}MB exceeds safety threshold of ${this.config.maxMemoryThresholdMB}MB. Initiating proactive clearing...`);
+          this.triggerMemoryReclamation();
+        }
+      }
+    }, 5000); // Check every 5 seconds
+  }
+
+  /**
+   * Clears large global tables to free up memory before browser crashes.
+   */
+  public triggerMemoryReclamation(): void {
+    try {
+      const context = this.getGlobalContext();
+      // Safely dispatch custom event to notify App/Engine state to flush Transposition Tables
+      if (context && typeof context.dispatchEvent === 'function') {
+        const event = new CustomEvent('stability_flush_tt', {
+          detail: { reason: 'high_memory_usage' }
+        });
+        context.dispatchEvent(event);
+        console.log('[StabilityGuard] Cache reclamation event dispatched to the active chess engine.');
+      }
+    } catch (e) {
+      console.error('[StabilityGuard] Failed to reclaim memory caches gracefully:', e);
+    }
+  }
+
+
+  /**
+   * Wraps a background Web Worker with safety heartbeats and recovery listeners.
+   * @param workerName Unique name identifier for the worker (e.g. 'SearchWorker')
+   * @param worker The active Worker instance
+   * @param onCrashRecovery Recovery callback if the worker hangs or terminates
+   */
+  public monitorWorker(workerName: string, worker: Worker, onCrashRecovery: () => void): void {
+    this.workerHeartbeats.set(workerName, Date.now());
+
+    // Clear old timer if any
+    const existingTimer = this.workerTimers.get(workerName);
+    if (existingTimer) clearInterval(existingTimer);
+
+    // Watchdog timer to monitor responsiveness
+    const timer = setInterval(() => {
+      const lastSeen = this.workerHeartbeats.get(workerName) || 0;
+      const elapsed = Date.now() - lastSeen;
+
+      if (elapsed > this.config.workerTimeoutMS) {
+        console.error(`[StabilityGuard] Worker [${workerName}] has stopped responding! Time elapsed: ${elapsed}ms. Triggering crash recovery...`);
+        this.recoverWorker(workerName, worker, onCrashRecovery);
+      }
+    }, 3000);
+
+    this.workerTimers.set(workerName, timer);
+  }
+
+  /**
+   * Feed the watchdog for a given worker to signal it is alive and processing safely.
+   */
+  public feedWatchdog(workerName: string): void {
+    this.workerHeartbeats.set(workerName, Date.now());
+  }
+
+  /**
+   * Force terminates an unresponsive worker and restarts it gracefully.
+   */
+  private recoverWorker(workerName: string, worker: Worker, onCrashRecovery: () => void): void {
+    try {
+      if (worker && typeof worker.terminate === 'function') {
+        worker.terminate(); // Kill the frozen worker thread
+      }
+      
+      const existingTimer = this.workerTimers.get(workerName);
+      if (existingTimer) clearInterval(existingTimer);
+      
+      this.workerHeartbeats.delete(workerName);
+      this.workerTimers.delete(workerName);
+
+      console.warn(`[StabilityGuard] Worker [${workerName}] terminated. Reinitializing...`);
+      onCrashRecovery(); // Trigger re-creation from App.tsx/engine context
+    } catch (e) {
+      console.error(`[StabilityGuard] Failed to recover worker [${workerName}]:`, e);
+    }
+  }
+
+
+  /**
+   * Begins a continuous background loop to serialize vital game and engine state.
+   */
+  private startStateBackupLoop(): void {
+    if (this.stateBackupTimer) clearInterval(this.stateBackupTimer);
+
+    this.stateBackupTimer = setInterval(() => {
+      this.triggerStateBackup();
+    }, this.config.stateBackupIntervalMS);
+  }
+
+  /**
+   * Dispatches an event asking components to save their parameters to localStorage.
+   */
+  private triggerStateBackup(): void {
+    const context = this.getGlobalContext();
+    if (context && typeof context.dispatchEvent === 'function') {
+      // Dispatches standard stability backup request
+      const event = new CustomEvent('stability_request_backup');
+      context.dispatchEvent(event);
+    }
+  }
+
+  /**
+   * Safely serializes payload and saves to local storage with in-memory backup fallback.
+   * Fixed: Added SecurityError / QuotaExceededError protection for restricted storage environments.
+   */
+  public saveBackup(payload: Omit<BackupPayload, 'timestamp'>): void {
+    try {
+      const fullBackup: BackupPayload = {
+        ...payload,
+        timestamp: Date.now()
+      };
+      const serialized = JSON.stringify(fullBackup);
+      
+      // Keep an in-memory copy as the absolute safety net
+      this.memoryBackupCache = serialized;
+
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('neuralyamame_safety_backup', serialized);
+      }
+    } catch (e) {
+      console.error('[StabilityGuard] State backup serialization failed (LocalStorage disabled or quota exceeded):', e);
+    }
+  }
+
+  /**
+   * Attempts to load the last successful backup. Returns null if none exists or is corrupt.
+   * Fixed: Fallback to memoryBackupCache if local storage lookup fails.
+   */
+  public loadBackup(): BackupPayload | null {
+    try {
+      let raw: string | null = null;
+      if (typeof localStorage !== 'undefined') {
+        raw = localStorage.getItem('neuralyamame_safety_backup');
+      }
+      
+      // Fallback to active runtime RAM cache if storage is blocked/cleared
+      if (!raw) {
+        raw = this.memoryBackupCache;
+      }
+      
+      if (!raw) return null;
+      return JSON.parse(raw) as BackupPayload;
+    } catch (e) {
+      console.error('[StabilityGuard] Recovery payload reading failed, clearing state...:', e);
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.removeItem('neuralyamame_safety_backup');
+        } catch (_) {}
+      }
+      this.memoryBackupCache = null;
+      return null;
+    }
+  }
+
+
+  /**
+   * Fallback activator. If NNUE weights fail to initialize, it triggers safety flags
+   * to gracefully shift to hand-crafted or classical chess evaluations.
+   */
+  public activateFallbackMode(): void {
+    if (this.fallbackModeActive) return;
+    this.fallbackModeActive = true;
+    console.warn('[StabilityGuard] NNUE / Neural Engine fallback mode ACTIVATED. Downshifting evaluations to safety profile.');
+    
+    const context = this.getGlobalContext();
+    if (context && typeof context.dispatchEvent === 'function') {
+      context.dispatchEvent(new CustomEvent('stability_nnue_fallback_triggered'));
+    }
+  }
+
+  public isFallbackModeActive(): boolean {
+    return this.fallbackModeActive;
+  }
+
+  /**
+   * Generic safety handler that monitors overall system health, logging issues without crashing.
+   */
+  private handleGenericError(type: string, details: any): void {
+    this.errorCount++;
+    console.error(`[StabilityGuard Barrier] ${type} intercepted:`, details);
+
+    // If excessive errors occur, reset/refresh cache safely
+    if (this.errorCount > this.maxAllowedErrors) {
+      console.warn('[StabilityGuard] Excessive runtime error loops detected! Flushing transposition tables to restore health.');
+      this.triggerMemoryReclamation();
+      this.errorCount = 0; // Reset counter
+    }
+  }
+
+  /**
+   * Destroys timers and clean up event hooks.
+   */
+  public dispose(): void {
+    if (this.stateBackupTimer) clearInterval(this.stateBackupTimer);
+    if (this.memoryMonitorTimer) clearInterval(this.memoryMonitorTimer);
+    for (const [_, timer] of this.workerTimers) {
+      clearInterval(timer);
+    }
+    this.workerTimers.clear();
+    this.workerHeartbeats.clear();
+  }
+}
