@@ -1,0 +1,84 @@
+/**
+ * NeuralYamame Stage 4 Search Quality & Decision Integrity Diagnostic
+ * 
+ * This module ensures the "Search Quality" (良率) by performing integrity checks
+ * on evaluation results and search paths. It acts as a final gatekeeper before
+ * the engine returns the best move to the UI.
+ */
+
+export interface DiagnosticResult {
+  isSafe: boolean;
+  score: number;
+  message?: string;
+}
+
+export class Stage4Diagnostics {
+  private static instance: Stage4Diagnostics;
+
+  // Maximum sane evaluation value (prevents overflow/inconsistent logic)
+  private readonly MAX_VALID_SCORE = 100000;
+  private readonly MIN_VALID_SCORE = -100000;
+
+  private constructor() {
+    console.log('[Stage4Diagnostics] Quality gatekeeper initialized.');
+  }
+
+  public static getInstance(): Stage4Diagnostics {
+    if (!Stage4Diagnostics.instance) {
+      Stage4Diagnostics.instance = new Stage4Diagnostics();
+    }
+    return Stage4Diagnostics.instance;
+  }
+
+  /**
+   * Sanitizes the search score returned by NNUE or classical evaluation.
+   * Ensures the engine never bases a decision on NaN, Infinity, or irrational values.
+   */
+  public sanitizeEvaluation(score: number): number {
+    if (isNaN(score) || !isFinite(score)) {
+      console.warn('[Stage4Diagnostics] Anomalous evaluation detected: NaN or Infinity. Normalizing to 0.');
+      return 0;
+    }
+
+    // Cap the score within a reasonable "Winning/Losing" range to prevent bitboard math overflow
+    if (score > this.MAX_VALID_SCORE) return this.MAX_VALID_SCORE;
+    if (score < this.MIN_VALID_SCORE) return this.MIN_VALID_SCORE;
+
+    return score;
+  }
+
+  /**
+   * Validates if the search result makes sense based on historical evaluation patterns.
+   * If a sudden, unexplainable drop in evaluation occurs, this flags a potential "Search Bug".
+   */
+  public diagnoseMoveQuality(currentScore: number, previousScore: number | null): DiagnosticResult {
+    // If no previous score, we can't diagnose a "change"
+    if (previousScore === null) return { isSafe: true, score: currentScore };
+
+    const scoreDelta = Math.abs(currentScore - previousScore);
+
+    // If the evaluation changes by more than 5000 units in a single ply, 
+    // it's likely a horizon effect or search error.
+    if (scoreDelta > 5000) {
+      return {
+        isSafe: false,
+        score: currentScore,
+        message: `High volatility detected: Delta ${scoreDelta}. Possible search blind-spot.`
+      };
+    }
+
+    return { isSafe: true, score: currentScore };
+  }
+
+  /**
+   * Final check on the selected move to ensure it hasn't been rendered illegal 
+   * by some edge case in the bitboard logic.
+   */
+  public verifyMoveSafety(isMoveValid: boolean, moveFen: string | null): boolean {
+    if (!isMoveValid) {
+      console.error('[Stage4Diagnostics] Illegal move attempted by high-level search.');
+      return false;
+    }
+    return true;
+  }
+}
