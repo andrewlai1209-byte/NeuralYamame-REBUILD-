@@ -1,0 +1,193 @@
+/**
+ * NeuralYamame High-Performance Fast Move Pool & Memory Recycler
+ * 
+ * In standard JS engines, generating new arrays and objects inside the alpha-beta search
+ * recursive loop causes severe garbage collection (GC) thrashing and high latency.
+ * This class eliminates GC by utilizing a pre-allocated, flat Uint32Array memory pool
+ * representing moves across all plies of search (up to 64 plies depth).
+ */
+
+export interface DecodedMove {
+  from: number;
+  to: number;
+  promotion: number;
+  flags: number;
+  score: number;
+}
+
+// Ultra-fast bitwise constants for encoding moves into a single 32-bit integer
+// Bits 0-5: From square (0-63)
+// Bits 6-11: To square (0-63)
+// Bits 12-14: Promotion piece (0: None, 1: N, 2: B, 3: R, 4: Q)
+// Bits 15-18: Special Move Flags (Quiet, Double Push, Castling, EnPassant, Capture)
+// Bits 19-31: Move priority score (0 to 8191) for move ordering
+const FROM_MASK      = 0x3F;
+const TO_MASK        = 0x3F << 6;
+const PROMOTION_MASK = 0x07 << 12;
+const FLAGS_MASK     = 0x0F << 15;
+const SCORE_MASK     = 0x1FFF << 19;
+
+
+export class FastMovePool {
+  private static instance: FastMovePool;
+
+  // Configuration constants
+  private readonly MAX_PLY = 64;           // Safe max recursion depth
+  private readonly MAX_MOVES_PER_PLY = 256; // Absolute mathematical limit of chess moves in any position
+  
+  // High speed flat memory layouts
+  private movePool: Uint32Array;
+  private moveCounts: Int32Array;
+
+  private constructor() {
+    // 64 plies * 256 moves/ply = 16,384 moves total capacity
+    const totalCapacity = this.MAX_PLY * this.MAX_MOVES_PER_PLY;
+    this.movePool = new Uint32Array(totalCapacity);
+    this.moveCounts = new Int32Array(this.MAX_PLY);
+    
+    console.log(`[FastMovePool] Allocated ${totalCapacity * 4} bytes of high-speed contiguous memory for zero-GC move management.`);
+  }
+
+  /**
+   * Get the singleton instance of the Fast Move Pool.
+   */
+  public static getInstance(): FastMovePool {
+    if (!FastMovePool.instance) {
+      FastMovePool.instance = new FastMovePool();
+    }
+    return FastMovePool.instance;
+  }
+
+  /**
+   * Fast inline move packing (Encodes a chess move structure into a single 32-bit integer)
+   */
+  public static encodeMove(from: number, to: number, promo: number = 0, flags: number = 0, score: number = 0): number {
+    return (from & FROM_MASK) |
+           ((to << 6) & TO_MASK) |
+           ((promo << 12) & PROMOTION_MASK) |
+           ((flags << 15) & FLAGS_MASK) |
+           ((Math.min(score, 8191) << 19) & SCORE_MASK);
+  }
+
+
+  /**
+   * Fast inline move unpacking
+   */
+  public static decodeMove(packedMove: number): DecodedMove {
+    return {
+      from: packedMove & FROM_MASK,
+      to: (packedMove & TO_MASK) >> 6,
+      promotion: (packedMove & PROMOTION_MASK) >> 12,
+      flags: (packedMove & FLAGS_MASK) >> 15,
+      score: (packedMove & SCORE_MASK) >> 19
+    };
+  }
+
+  /**
+   * Reset the move list pointer for a specific search depth (ply).
+   */
+  public clearPly(ply: number): void {
+    if (ply >= 0 && ply < this.MAX_PLY) {
+      this.moveCounts[ply] = 0;
+    }
+  }
+
+  /**
+   * Pushes a packed move into the pre-allocated pool at a specific depth without allocating memory.
+   */
+  public pushMove(ply: number, packedMove: number): void {
+    const currentCount = this.moveCounts[ply];
+    if (currentCount >= this.MAX_MOVES_PER_PLY) {
+      // Overflows are mathematically impossible in valid chess, but protected here
+      return;
+    }
+
+    const index = (ply * this.MAX_MOVES_PER_PLY) + currentCount;
+    this.movePool[index] = packedMove;
+    this.moveCounts[ply] = currentCount + 1;
+  }
+
+
+  /**
+   * Retrieves the move count for the specified ply.
+   */
+  public getMoveCount(ply: number): number {
+    return this.moveCounts[ply];
+  }
+
+  /**
+   * Gets a direct packed move from the pool via ply and local index.
+   */
+  public getMove(ply: number, index: number): number {
+    return this.movePool[(ply * this.MAX_MOVES_PER_PLY) + index];
+  }
+
+  /**
+   * High speed in-place Selection Sort for Move Ordering.
+   * Eliminates the overhead of JS Array.prototype.sort which allocates and copies objects.
+   */
+  public sortMoves(ply: number): void {
+    const count = this.moveCounts[ply];
+    if (count <= 1) return;
+
+    const startOffset = ply * this.MAX_MOVES_PER_PLY;
+
+    for (let i = 0; i < count - 1; i++) {
+      let bestIndex = i;
+      let bestScore = (this.movePool[startOffset + i] & SCORE_MASK) >> 19;
+
+      for (let j = i + 1; j < count; j++) {
+        const score = (this.movePool[startOffset + j] & SCORE_MASK) >> 19;
+        if (score > bestScore) {
+          bestScore = score;
+          bestIndex = j;
+        }
+      }
+
+      if (bestIndex !== i) {
+        const temp = this.movePool[startOffset + i];
+        this.movePool[startOffset + i] = this.movePool[startOffset + bestIndex];
+        this.movePool[startOffset + bestIndex] = temp;
+      }
+    }
+  }
+
+
+  /**
+   * Extracts all moves for a specific ply into a standard JS array (used for debugging/UI compatibility).
+   */
+  public getMovesAsArray(ply: number): DecodedMove[] {
+    const count = this.moveCounts[ply];
+    const result: DecodedMove[] = new Array(count);
+    const startOffset = ply * this.MAX_MOVES_PER_PLY;
+
+    for (let i = 0; i < count; i++) {
+      result[i] = FastMovePool.decodeMove(this.movePool[startOffset + i]);
+    }
+    return result;
+  }
+
+  /**
+   * Returns a diagnostic overview of the memory pool's current footprint.
+   */
+  public getMemoryReport(): { allocatedBytes: number; maxPliesSupported: number; usageStats: string } {
+    const totalCapacity = this.MAX_PLY * this.MAX_MOVES_PER_PLY;
+    let activeMoves = 0;
+    for (let i = 0; i < this.MAX_PLY; i++) {
+      activeMoves += this.moveCounts[i];
+    }
+
+    return {
+      allocatedBytes: (this.movePool.byteLength) + (this.moveCounts.byteLength),
+      maxPliesSupported: this.MAX_PLY,
+      usageStats: `Active cached moves across all plies: ${activeMoves}/${totalCapacity}`
+    };
+  }
+}
+``` eof
+```
+
+### 🏆 這個優化檔案帶來的作用：
+1. **極速位元打包（Bit-Packing）**：利用 `encodeMove` 與 `decodeMove`，將原本龐大的 move 物件壓縮成一個 **32-bit 整數**。在 JS 引擎中，整數的搬移與運算速度是物件的數十倍。
+2. **高速原地排序（In-place Selection Sort）**：此模組內建了針對 `SCORE_MASK` 的快速原地排序。因為不需要呼叫內建的 `Array.prototype.sort`（這會建立閉包與暫存陣列），效能得以完美提升。
+3. **無縫對接**：當前搜尋演演算法（`search.ts` 或 `search.worker.ts`）在走子生成與 Alpha-Beta 遞迴時，可以直接引入這個 `FastMovePool`，達成極高的 NPS 數據突破！
