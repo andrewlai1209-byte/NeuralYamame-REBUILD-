@@ -1,5 +1,5 @@
 import { BitboardEngine, COLOR_WHITE, COLOR_BLACK, PIECE_PAWN, PIECE_KNIGHT, PIECE_BISHOP, PIECE_ROOK, PIECE_QUEEN, PIECE_KING } from './board';
-import { KNIGHT_ATTACKS, KING_ATTACKS, PAWN_ATTACKS, getSliderAttacks } from './attacks';
+import { KNIGHT_ATTACKS, KING_ATTACKS, PAWN_ATTACKS, getRookAttacks, getBishopAttacks, getQueenAttacks } from './attacks';
 import { popLSB } from './bitboard';
 
 export interface Move {
@@ -102,7 +102,7 @@ export function generateMoves(board: BitboardEngine, capturesOnly: boolean = fal
   while (bishops !== 0n) {
     const { sq: from, bb: remaining } = popLSB(bishops);
     bishops = remaining;
-    let attacks = getSliderAttacks(from, occupied, false, true) & ~friendlyBB;
+    let attacks = getBishopAttacks(from, occupied) & ~friendlyBB;
     while (attacks !== 0n) {
       const { sq: to, bb: remAttacks } = popLSB(attacks);
       attacks = remAttacks;
@@ -115,7 +115,7 @@ export function generateMoves(board: BitboardEngine, capturesOnly: boolean = fal
   while (rooks !== 0n) {
     const { sq: from, bb: remaining } = popLSB(rooks);
     rooks = remaining;
-    let attacks = getSliderAttacks(from, occupied, true, false) & ~friendlyBB;
+    let attacks = getRookAttacks(from, occupied) & ~friendlyBB;
     while (attacks !== 0n) {
       const { sq: to, bb: remAttacks } = popLSB(attacks);
       attacks = remAttacks;
@@ -128,7 +128,7 @@ export function generateMoves(board: BitboardEngine, capturesOnly: boolean = fal
   while (queens !== 0n) {
     const { sq: from, bb: remaining } = popLSB(queens);
     queens = remaining;
-    let attacks = getSliderAttacks(from, occupied, true, true) & ~friendlyBB;
+    let attacks = getQueenAttacks(from, occupied) & ~friendlyBB;
     while (attacks !== 0n) {
       const { sq: to, bb: remAttacks } = popLSB(attacks);
       attacks = remAttacks;

@@ -13,7 +13,7 @@
  */
 
 import { EMPTY, ALL, setBit, clearBit, toggleBit, checkBit, popLSB, popCount } from './bitboard';
-import { KNIGHT_ATTACKS, KING_ATTACKS, PAWN_ATTACKS, getSliderAttacks } from './attacks';
+import { KNIGHT_ATTACKS, KING_ATTACKS, PAWN_ATTACKS, getRookAttacks, getBishopAttacks, getQueenAttacks } from './attacks';
 import { ZOBRIST_PIECE, ZOBRIST_SIDE, ZOBRIST_CASTLING, ZOBRIST_EP } from './zobrist';
 import { Move } from './movegen';
 
@@ -137,6 +137,7 @@ export class BitboardEngine {
 
   /**
    * Check if a square is attacked by a given color
+   * Uses Magic Bitboards for O(1) slider attack generation
    */
   public isSquareAttacked(sq: number, byColor: number): boolean {
     const opp = byColor;
@@ -150,15 +151,16 @@ export class BitboardEngine {
     // King
     if ((KING_ATTACKS[sq] & this.pieceBB[opp][PIECE_KING]) !== 0n) return true;
     
-    // Sliders
+    // Sliders - Rooks and Queens
     const rooksQueens = this.pieceBB[opp][PIECE_ROOK] | this.pieceBB[opp][PIECE_QUEEN];
     if (rooksQueens !== 0n) {
-      if ((getSliderAttacks(sq, this.occupied, true, false) & rooksQueens) !== 0n) return true;
+      if ((getRookAttacks(sq, this.occupied) & rooksQueens) !== 0n) return true;
     }
     
+    // Bishops and Queens
     const bishopsQueens = this.pieceBB[opp][PIECE_BISHOP] | this.pieceBB[opp][PIECE_QUEEN];
     if (bishopsQueens !== 0n) {
-      if ((getSliderAttacks(sq, this.occupied, false, true) & bishopsQueens) !== 0n) return true;
+      if ((getBishopAttacks(sq, this.occupied) & bishopsQueens) !== 0n) return true;
     }
 
     return false;
