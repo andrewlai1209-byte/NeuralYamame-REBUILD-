@@ -4,6 +4,7 @@ import { Move, generateMoves } from './movegen';
 import { EngineConfig } from '../types';
 import { TranspositionTable, TTEntry } from './tt';
 import { sortMoves } from './moveOrdering';
+import { popCount } from './bitboard';
 
 export class ChessEngineSearch {
   private config: EngineConfig;
@@ -151,7 +152,7 @@ export class ChessEngineSearch {
         // Check Extension: search 1 ply deeper instead of dropping straight into quiescence search
         return this.alphaBeta(board, 1, ply, alpha, beta, isMaximizing, evalFunc, false, prevMove);
       }
-      const score = this.quiesce(board, alpha, beta, isMaximizing, evalFunc);
+      const score = this.quiesce(board, alpha, beta, isMaximizing, evalFunc, ply);
       return { score, move: null };
     }
 
@@ -167,20 +168,24 @@ export class ChessEngineSearch {
        }
     }
 
-    // Null Move Pruning
+    // Null Move Pruning (disabled in endgame to avoid Zugzwang issues)
     if (allowNull && depth >= 3 && !board.inCheck(board.sideToMove)) {
-       board.sideToMove ^= 1;
-       const oldEp = board.epSquare;
-       board.epSquare = -1;
-       
-       const R = depth > 6 ? 3 : 2;
-       const ev = this.alphaBeta(board, depth - 1 - R, ply + 1, alpha, beta, !isMaximizing, evalFunc, false, null).score;
-       
-       board.sideToMove ^= 1;
-       board.epSquare = oldEp;
-       
-       if (isMaximizing && ev >= beta) return { score: beta, move: null };
-       if (!isMaximizing && ev <= alpha) return { score: alpha, move: null };
+       // Disable null move in endgame when few pieces remain (Zugzwang risk)
+       const pieceCount = popCount(board.occupied);
+       if (pieceCount > 8) {
+         board.sideToMove ^= 1;
+         const oldEp = board.epSquare;
+         board.epSquare = -1;
+         
+         const R = depth > 6 ? 3 : 2;
+         const ev = this.alphaBeta(board, depth - 1 - R, ply + 1, alpha, beta, !isMaximizing, evalFunc, false, null).score;
+         
+         board.sideToMove ^= 1;
+         board.epSquare = oldEp;
+         
+         if (isMaximizing && ev >= beta) return { score: beta, move: null };
+         if (!isMaximizing && ev <= alpha) return { score: alpha, move: null };
+       }
     }
 
     // Futility Pruning
@@ -312,11 +317,11 @@ export class ChessEngineSearch {
   }
 
   // Quiescence search limits horizon effect
-  private quiesce(board: BitboardEngine, alpha: number, beta: number, isMaximizing: boolean, evalFunc: (b: BitboardEngine) => number): number {
+  private quiesce(board: BitboardEngine, alpha: number, beta: number, isMaximizing: boolean, evalFunc: (b: BitboardEngine) => number, ply: number = 0): number {
     this.nodes++;
     
     const inCheck = board.inCheck(board.sideToMove);
-    const standPat = inCheck ? -99999 : evalFunc(board);
+    const standPat = inCheck ? -99999 + ply : evalFunc(board);
 
     if (!inCheck) {
       if (isMaximizing) {
@@ -344,26 +349,26 @@ export class ChessEngineSearch {
       let val = standPat;
       for (const m of movesToTry) {
         board.makeMove(m);
-        const ev = this.quiesce(board, alpha, beta, false, evalFunc);
+        const ev = this.quiesce(board, alpha, beta, false, evalFunc, ply + 1);
         board.undoMove(m);
 
         if (ev >= beta) return beta;
         if (ev > alpha) alpha = ev;
         val = Math.max(val, ev);
       }
-      return inCheck && movesToTry.length === 0 ? -99999 : alpha;
+      return inCheck && movesToTry.length === 0 ? -99999 + ply : alpha;
     } else {
       let val = standPat;
       for (const m of movesToTry) {
         board.makeMove(m);
-        const ev = this.quiesce(board, alpha, beta, true, evalFunc);
+        const ev = this.quiesce(board, alpha, beta, true, evalFunc, ply + 1);
         board.undoMove(m);
 
         if (ev <= alpha) return alpha;
         if (ev < beta) beta = ev;
         val = Math.min(val, ev);
       }
-      return inCheck && movesToTry.length === 0 ? 99999 : beta;
+      return inCheck && movesToTry.length === 0 ? 99999 - ply : beta;
     }
   }
 

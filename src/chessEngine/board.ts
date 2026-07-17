@@ -46,7 +46,8 @@ export class BitboardEngine {
     for (let i = 0; i < boardStr.length; i++) {
       const char = boardStr[i];
       if (char === '/') {
-        sq -= 16;
+        sq -= 15; // Move to next rank: a8=56, after rank we need to go to a7=48, so subtract 16-1=15
+        // Actually: sq was at h8 (63), after '/' we want a7 (48). 63 - 15 = 48 ✓
       } else if (char >= '1' && char <= '8') {
         sq += parseInt(char, 10);
       } else {
