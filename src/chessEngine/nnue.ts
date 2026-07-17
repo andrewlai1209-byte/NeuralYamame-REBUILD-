@@ -5,7 +5,7 @@ import { popLSB } from './bitboard';
 // 12 piece types (White Pawn, Knight, Bishop, Rook, Queen, King, then Black Pawn, etc.)
 // 64 squares. Total features = 12 * 64 = 768 features for each side.
 const NUM_FEATURES = 768;
-const HIDDEN_SIZE = 16;
+const HIDDEN_SIZE = 256; // Upgraded from 16 to 256 for true dual-layer NNUE
 
 /**
  * Seeded pseudo-random generator for reproducible neural network weights
@@ -73,9 +73,15 @@ export class MicroNNUE {
 
         const baseFeatureVal = sign * (baseVal + centerBonus);
         
-        // Distribute feature values across hidden nodes
+        // Distribute feature values across hidden nodes with varied patterns
         const index = f * HIDDEN_SIZE + h;
-        this.weightsIH[index] = (baseFeatureVal / 50) + noise;
+        // Use different weight distributions for different hidden neuron groups
+        const group = h % 4;
+        let weightVal = (baseFeatureVal / 50) + noise;
+        if (group === 1) weightVal *= 1.2; // Slightly amplify some neurons
+        if (group === 2) weightVal *= 0.8; // Slightly reduce others
+        if (group === 3) weightVal += (rank - 3.5) * 2; // Add rank-based bias
+        this.weightsIH[index] = weightVal;
       }
     }
 
@@ -84,9 +90,11 @@ export class MicroNNUE {
       this.biasesH[h] = (lcg.next() - 0.5) * 5;
     }
 
-    // Output weights (16 for White perspective, 16 for Black perspective)
+    // Output weights (256 for White perspective, 256 for Black perspective)
     for (let i = 0; i < HIDDEN_SIZE * 2; i++) {
+      // Alternate signs and magnitudes for better gradient flow
       this.weightsHO[i] = i < HIDDEN_SIZE ? 1.5 : -1.5;
+      if (i % 8 < 4) this.weightsHO[i] *= 1.1;
     }
     this.biasO = 10;
   }

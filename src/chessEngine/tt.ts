@@ -10,17 +10,17 @@ export class TranspositionTable {
   private entries: (TTEntry | null)[];
   private maxEntries: number;
 
-  constructor(maxSizeMB: number = 64) {
+  constructor(maxSizeMB: number = 256) { // Increased default from 64MB to 256MB for 16M entries
     // Approx 32 bytes per entry in JS (object overhead). Let's be conservative.
     const entrySize = 32; 
     const numEntries = Math.floor((maxSizeMB * 1024 * 1024) / entrySize);
     
     // Nearest power of 2 for fast modulo
     this.maxEntries = 1;
-    while (this.maxEntries <= numEntries) {
+    while (this.maxEntries <= numEntries && this.maxEntries < 16777216) { // 16M = 2^24
       this.maxEntries <<= 1;
     }
-    this.maxEntries >>= 1; // back down to fit
+    if (this.maxEntries > 16777216) { this.maxEntries >>= 1; } // back down to fit 16M
 
     this.entries = new Array(this.maxEntries).fill(null);
   }
