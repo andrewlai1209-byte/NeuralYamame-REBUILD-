@@ -4,6 +4,9 @@ This directory contains the complete engineering documentation for the NeuralYam
 
 ## Core Documents
 
+### Supreme Law (Absolute Authority)
+- **[THE_FIVE_LAWS.md](./THE_FIVE_LAWS.md)** - 📜 **The Six Laws of NeuralYamame REBUILD** - Supreme engineering constitution that overrides all other guidelines
+
 ### Constitutions (Foundational)
 - **[ARCHITECTURE_CONSTITUTION.md](./ARCHITECTURE_CONSTITUTION.md)** - Project vision, principles, and module architecture
 - **[SEARCH_CONSTITUTION.md](./SEARCH_CONSTITUTION.md)** - Search algorithms and optimization strategies
@@ -29,9 +32,10 @@ This directory contains the complete engineering documentation for the NeuralYam
 ## Quick Start
 
 ### New Contributors
-1. Read [ARCHITECTURE_CONSTITUTION.md](./ARCHITECTURE_CONSTITUTION.md) for project overview
-2. Review [CODING_STANDARDS.md](./CODING_STANDARDS.md) for code guidelines
-3. Check [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md) for current priorities
+1. **Read [THE_FIVE_LAWS.md](./THE_FIVE_LAWS.md) first** - These are the supreme engineering principles
+2. Read [ARCHITECTURE_CONSTITUTION.md](./ARCHITECTURE_CONSTITUTION.md) for project overview
+3. Review [CODING_STANDARDS.md](./CODING_STANDARDS.md) for code guidelines
+4. Check [DEVELOPMENT_ROADMAP.md](./DEVELOPMENT_ROADMAP.md) for current priorities
 
 ### Code Contributors
 1. Pick a task from the roadmap
@@ -47,6 +51,7 @@ This directory contains the complete engineering documentation for the NeuralYam
 
 | Document | Status | Last Updated |
 |----------|--------|--------------|
+| **THE FIVE LAWS** | ✅ **SUPREME LAW** | 2025-01 |
 | Architecture Constitution | ✅ Complete | 2025-01 |
 | Search Constitution | ✅ Complete | 2025-01 |
 | Evaluation Constitution | ✅ Complete | 2025-01 |
