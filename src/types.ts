@@ -1,7 +1,47 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * @fileoverview Core Type Definitions for NeuralYamame REBUILD
+ * 
+ * Centralized type system ensuring type safety across all engine modules.
+ * Designed for long-term maintainability and extensibility.
+ * 
+ * @module types
+ * @version 2.0.0
+ * @since 2024
+ * 
+ * @compliance
+ * - First Law: Comprehensive type system for architectural clarity
+ * - Second Law: Every type serves correctness, maintainability, or scalability
+ * - Fifth Law: Types designed before implementation
  */
+
+// ============================================================================
+// Basic Chess Types
+// ============================================================================
+
+/**
+ * Square index on the chessboard (0 = a1, 63 = h8)
+ */
+export type Square = number;
+
+/**
+ * Color identifier (0 = white, 1 = black)
+ */
+export type Color = 0 | 1;
+
+/**
+ * Piece type identifier (0=pawn, 1=knight, 2=bishop, 3=rook, 4=queen, 5=king)
+ */
+export type PieceType = 0 | 1 | 2 | 3 | 4 | 5;
+
+/**
+ * Bitboard representation using 64-bit bigint
+ * Each bit represents a square on the board
+ */
+export type Bitboard = bigint;
+
+// ============================================================================
+// Engine Configuration Types
+// ============================================================================
 
 export type EnginePersonalityId = 'tactical' | 'positional' | 'gambiter' | 'defensive';
 
@@ -11,32 +51,43 @@ export interface EnginePersonality {
   avatar: string;
   description: string;
   quote: string;
-  // Weight multipliers for evaluation
   materialWeights: {
-    p: number; // Pawn
-    n: number; // Knight
-    b: number; // Bishop
-    r: number; // Rook
-    q: number; // Queen
-    k: number; // King
+    p: number;
+    n: number;
+    b: number;
+    r: number;
+    q: number;
+    k: number;
   };
-  pstWeights: number; // Piece Square Table weight (0-2)
-  mobilityWeight: number; // Mobility weight
-  kingSafetyWeight: number; // King safety weight
-  pawnStructureWeight: number; // Pawn structure weight
+  pstWeights: number;
+  mobilityWeight: number;
+  kingSafetyWeight: number;
+  pawnStructureWeight: number;
 }
 
-export type EvaluationMode = 'traditional' | 'neural' | 'hybrid' | 'leeza_mcts' | 'stockfish_nnue' | 'komodo_mcts' | 'patricia_neural' | 'nova_chess' | 'pantheon_fusion' | 'neuralcore_rl_selfplay' | 'lc0_neural' | 'torch_hybrid';
+export type EvaluationMode = 
+  | 'traditional' 
+  | 'neural' 
+  | 'hybrid' 
+  | 'leeza_mcts' 
+  | 'stockfish_nnue' 
+  | 'komodo_mcts' 
+  | 'patricia_neural' 
+  | 'nova_chess' 
+  | 'pantheon_fusion' 
+  | 'neuralcore_rl_selfplay' 
+  | 'lc0_neural' 
+  | 'torch_hybrid';
 
 export interface EngineConfig {
   maxDepth: number;
   personality: EnginePersonalityId;
   evalMode: EvaluationMode;
-  timeLimitMs?: number;         // Time budget for thinking in milliseconds
-  quiescenceLimit?: number;     // Quiescence depth limit to prevent horizon effect
-  maxCapturesToCheck?: number;  // Max captures to check in quiescence search
+  timeLimitMs?: number;
+  quiescenceLimit?: number;
+  maxCapturesToCheck?: number;
   difficulty?: 'beginner' | 'intermediate' | 'expert' | 'grandmaster';
-  leezaThinkingThreads?: number; // Simulated GPU thinking threads for Leeza
+  leezaThinkingThreads?: number;
   customWeights?: {
     p?: number;
     n?: number;
@@ -48,6 +99,122 @@ export interface EngineConfig {
     pstWeights?: number;
   };
 }
+
+// ============================================================================
+// Move Types
+// ============================================================================
+
+/**
+ * Move flags for special move types
+ */
+export enum MoveFlags {
+  NORMAL = 0,
+  EN_PASSANT = 1,
+  CASTLE = 2,
+  PAWN_DOUBLE = 4
+}
+
+/**
+ * Represents a chess move with all necessary information
+ */
+export interface Move {
+  from: Square;
+  to: Square;
+  piece: PieceType;
+  captured: PieceType | -1;
+  promotion: PieceType | -1;
+  flags: MoveFlags;
+}
+
+/**
+ * Internal move representation for search (packed format)
+ */
+export type PackedMove = number;
+
+// ============================================================================
+// Board State Types
+// ============================================================================
+
+/**
+ * Complete state of a chess position for hashing and repetition detection
+ */
+export interface BoardState {
+  pieces: Array<{ color: Color; pieceType: PieceType; square: Square }>;
+  sideToMove: Color;
+  castlingRights: number;
+  epSquare: Square | -1;
+  halfMoveClock: number;
+  fullMoveNumber: number;
+}
+
+/**
+ * Stack entry for makeMove/undoMove operations
+ */
+export interface BoardStateSnapshot {
+  epSquare: Square | -1;
+  castlingRights: number;
+  halfMoveClock: number;
+  hashKey: bigint;
+  capturedPiece?: { pieceType: PieceType; square: Square };
+}
+
+// ============================================================================
+// Search Types
+// ============================================================================
+
+/**
+ * Transposition table entry
+ */
+export interface TTEntry {
+  key: bigint;
+  depth: number;
+  score: number;
+  flag: TTFlag;
+  bestMove: Move | null;
+}
+
+/**
+ * Transposition table bound types
+ */
+export enum TTFlag {
+  EXACT = 0,
+  ALPHA = 1,
+  BETA = 2
+}
+
+/**
+ * Search result structure
+ */
+export interface SearchResult {
+  bestMove: {
+    from: string;
+    to: string;
+    promotion?: string;
+  } | null;
+  score: number;
+  depth: number;
+  nodes: number;
+  nps: number;
+  pv: Move[];
+}
+
+/**
+ * Perft test result
+ */
+export interface PerftResult {
+  depth: number;
+  customNodes: number;
+  oracleNodes: number;
+  matched: boolean;
+  timeCustomMs: number;
+  timeOracleMs: number;
+  npsCustom: number;
+  npsOracle: number;
+}
+
+// ============================================================================
+// Training and Analysis Types
+// ============================================================================
 
 export interface DuelConfig {
   engine1: EngineConfig;
@@ -70,9 +237,9 @@ export interface TrainingGame {
 export interface LeezaMCTSNode {
   move: string;
   visits: number;
-  qValue: number; // Action value Q (-1 to 1)
-  prior: number;  // Prior probability P (0 to 1)
-  uct: number;    // Selection metric
+  qValue: number;
+  prior: number;
+  uct: number;
 }
 
 export interface LeezaTrainingConfig {
@@ -82,7 +249,6 @@ export interface LeezaTrainingConfig {
   architecture: 'ResNet-20' | 'ResNet-40' | 'ViT-Transformer';
   epochsToRun: number;
 }
-
 
 export interface EloHistoryPoint {
   epoch: number;
@@ -101,13 +267,13 @@ export interface LossMetricPoint {
 
 export interface TrainingSummary {
   totalGames: number;
-  winRate: number; // percentage
-  drawRate: number; // percentage
-  lossRate: number; // percentage
+  winRate: number;
+  drawRate: number;
+  lossRate: number;
   currentElo: number;
   policyLoss: number;
   valueLoss: number;
-  trainSpeed: number; // steps/sec
+  trainSpeed: number;
   gamesInCloud: number;
   recentGames: TrainingGame[];
 }
@@ -116,10 +282,35 @@ export interface LiveAnalysisData {
   depth: number;
   selDepth: number;
   nodes: number;
-  nps: number; // nodes per second
-  score: number; // centipawns (+ is white, - is black)
-  mateIn?: number; // moves to mate if detected
-  pv: string[]; // principal variation (best line)
-  commentary?: string; // Gemini-generated positional commentary
+  nps: number;
+  score: number;
+  mateIn?: number;
+  pv: string[];
+  commentary?: string;
   isAnalyzing: boolean;
+}
+
+// ============================================================================
+// Benchmark Types
+// ============================================================================
+
+/**
+ * Benchmark metrics for performance analysis
+ */
+export interface BenchmarkMetrics {
+  nodesPerSecond: number;
+  perftTime: number;
+  hashCollisionRate: number;
+  averageSearchDepth: number;
+  memoryUsageMB: number;
+}
+
+/**
+ * Benchmark result for a single test case
+ */
+export interface BenchmarkResult {
+  name: string;
+  metrics: BenchmarkMetrics;
+  timestamp: number;
+  passed: boolean;
 }
