@@ -1,8 +1,1 @@
-node_modules/
-build/
-dist/
-coverage/
-.DS_Store
-*.log
-.env*
-!.env.example
+Nothing should be ignored since the changes only include source code files (.ts) and no build artifacts, dependencies, or temporary files.
