@@ -35,6 +35,7 @@ export interface EngineConfig {
   timeLimitMs?: number;         // Time budget for thinking in milliseconds
   quiescenceLimit?: number;     // Quiescence depth limit to prevent horizon effect
   maxCapturesToCheck?: number;  // Max captures to check in quiescence search
+  enableOnlineGameSearch?: boolean; // Query public master-game databases for opening moves
   difficulty?: 'beginner' | 'intermediate' | 'expert' | 'grandmaster';
   leezaThinkingThreads?: number; // Simulated GPU thinking threads for Leeza
   customWeights?: {

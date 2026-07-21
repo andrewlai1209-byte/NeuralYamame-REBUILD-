@@ -27,7 +27,7 @@ export function generateMoves(board: BitboardEngine, capturesOnly: boolean = fal
   };
 
   const addMove = (from: number, to: number, piece: number, captured: number, flags: number = 0) => {
-    if (capturesOnly && captured === -1 && flags !== 1) return; // eps is a capture
+    if (capturesOnly && captured === -1 && flags !== 1) return; // en passant is a capture
     
     // Pawn promotion
     if (piece === PIECE_PAWN && (to >= 56 || to <= 7)) {
@@ -150,18 +150,18 @@ export function generateMoves(board: BitboardEngine, capturesOnly: boolean = fal
     // Castling
     if (!capturesOnly && !board.inCheck(color)) {
       if (color === COLOR_WHITE) {
-        if ((board.castlingRights & 1) && (occupied & ((1n << 61n) | (1n << 62n))) === 0n) {
-          if (!board.isSquareAttacked(61, COLOR_BLACK)) addMove(60, 62, PIECE_KING, -1, 2);
+        if ((board.castlingRights & 1) && (occupied & ((1n << 5n) | (1n << 6n))) === 0n) {
+          if (!board.isSquareAttacked(5, COLOR_BLACK) && !board.isSquareAttacked(6, COLOR_BLACK)) addMove(4, 6, PIECE_KING, -1, 2);
         }
-        if ((board.castlingRights & 2) && (occupied & ((1n << 57n) | (1n << 58n) | (1n << 59n))) === 0n) {
-          if (!board.isSquareAttacked(59, COLOR_BLACK)) addMove(60, 58, PIECE_KING, -1, 2);
+        if ((board.castlingRights & 2) && (occupied & ((1n << 1n) | (1n << 2n) | (1n << 3n))) === 0n) {
+          if (!board.isSquareAttacked(3, COLOR_BLACK) && !board.isSquareAttacked(2, COLOR_BLACK)) addMove(4, 2, PIECE_KING, -1, 2);
         }
       } else {
-        if ((board.castlingRights & 4) && (occupied & ((1n << 5n) | (1n << 6n))) === 0n) {
-          if (!board.isSquareAttacked(5, COLOR_WHITE)) addMove(4, 6, PIECE_KING, -1, 2);
+        if ((board.castlingRights & 4) && (occupied & ((1n << 61n) | (1n << 62n))) === 0n) {
+          if (!board.isSquareAttacked(61, COLOR_WHITE) && !board.isSquareAttacked(62, COLOR_WHITE)) addMove(60, 62, PIECE_KING, -1, 2);
         }
-        if ((board.castlingRights & 8) && (occupied & ((1n << 1n) | (1n << 2n) | (1n << 3n))) === 0n) {
-          if (!board.isSquareAttacked(3, COLOR_WHITE)) addMove(4, 2, PIECE_KING, -1, 2);
+        if ((board.castlingRights & 8) && (occupied & ((1n << 57n) | (1n << 58n) | (1n << 59n))) === 0n) {
+          if (!board.isSquareAttacked(59, COLOR_WHITE) && !board.isSquareAttacked(58, COLOR_WHITE)) addMove(60, 58, PIECE_KING, -1, 2);
         }
       }
     }

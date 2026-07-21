@@ -12,6 +12,7 @@ import { PERSONALITIES, TRAINING_PROFILES } from './chessEngine/personalities';
 import { evaluate, evaluateNNUE } from './chessEngine/evaluation';
 import { TranspositionTable } from './chessEngine/tt';
 import { ChessEngineSearch } from './chessEngine/search';
+import { fetchOnlineGameMove } from './lib/onlineGameExplorer';
 
 export { PERSONALITIES, TRAINING_PROFILES };
 
@@ -69,6 +70,13 @@ export class ChessEngine {
     leezaMctsNodes?: any[];
     leezaValueHead?: { whiteWin: number; draw: number; blackWin: number };
     policyMap?: Record<string, number>;
+    onlineGameReference?: {
+      source: string;
+      games: number;
+      whiteWins: number;
+      draws: number;
+      blackWins: number;
+    };
   }> {
     const chess = new Chess(fen);
 
@@ -85,6 +93,13 @@ export class ChessEngine {
         pv: [bookMove.nextBookMove],
         bookOpeningName: bookMove.name
       };
+    }
+
+    // 1.25 Online master-game explorer integration. This is optional and
+    // fail-safe: any network/API issue falls through to normal engine search.
+    const onlineBookMove = await this.findOnlineMasterGameMove(fen);
+    if (onlineBookMove) {
+      return onlineBookMove;
     }
 
     // 1.5 Syzygy Endgame Tablebase Integration (7-piece or fewer)
@@ -246,6 +261,20 @@ export class ChessEngine {
     }
 
     return result;
+  }
+
+
+  private async findOnlineMasterGameMove(fen: string) {
+    if (this.config.enableOnlineGameSearch === false || typeof fetch === 'undefined') return null;
+
+    try {
+      const isBrowserLike = typeof window !== 'undefined' || (typeof self !== 'undefined' && !!self.location?.origin);
+      const origin = isBrowserLike ? self.location.origin : undefined;
+      return await fetchOnlineGameMove(fen, fetch, origin);
+    } catch (err) {
+      console.warn('Online master-game lookup skipped:', err);
+      return null;
+    }
   }
 
   /**

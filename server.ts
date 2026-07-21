@@ -382,6 +382,46 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
 });
 
+
+// Online master-game explorer cache. Uses public Lichess Explorer data to
+// harvest practical opening moves from historical master games without
+// renaming or replacing NeuralYamame-REBUILD.
+const masterGameCache = new Map<string, any>();
+const MASTER_GAME_CACHE_SIZE = 500;
+
+app.get('/api/master-games', async (req, res) => {
+  const { fen } = req.query;
+  if (!fen) return res.status(400).json({ error: 'Missing FEN' });
+
+  const fenStr = decodeURIComponent(fen as string).trim();
+  if (masterGameCache.has(fenStr)) {
+    return res.json(masterGameCache.get(fenStr));
+  }
+
+  try {
+    const params = new URLSearchParams({ fen: fenStr, moves: '8', topGames: '3' });
+    const response = await fetch(`https://explorer.lichess.ovh/masters?${params.toString()}`, {
+      headers: { Accept: 'application/json' }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: 'Master-game lookup failed' });
+    }
+
+    const data = await response.json();
+    const payload = { ...data, source: 'Lichess Masters Explorer' };
+    if (masterGameCache.size >= MASTER_GAME_CACHE_SIZE) {
+      const firstKey = masterGameCache.keys().next().value;
+      if (firstKey !== undefined) masterGameCache.delete(firstKey);
+    }
+    masterGameCache.set(fenStr, payload);
+    return res.json(payload);
+  } catch (err) {
+    console.error('Master-game explorer API error:', err);
+    return res.status(500).json({ error: 'Internal error querying master-game explorer' });
+  }
+});
+
 // Syzygy Endgame Tablebase Cache
 const syzygyCache = new Map<string, any>();
 const MAX_CACHE_SIZE = 1000;
@@ -425,7 +465,7 @@ app.get("/api/syzygy", async (req, res) => {
  * POST endpoint to perform real-time Chess Engine move search via API
  */
 app.post('/api/engine/search', async (req, res) => {
-  const { fen, depth, personality, evalMode, moveHistory, timeLimitMs, quiescenceLimit, maxCapturesToCheck } = req.body;
+  const { fen, depth, personality, evalMode, moveHistory, timeLimitMs, quiescenceLimit, maxCapturesToCheck, enableOnlineGameSearch } = req.body;
   
   const searchFen = fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   const searchDepth = Math.min(8, Math.max(1, parseInt(depth) || 3));
@@ -440,7 +480,8 @@ app.post('/api/engine/search', async (req, res) => {
       evalMode: engineEvalMode as any,
       timeLimitMs: timeLimitMs ? parseInt(timeLimitMs) : undefined,
       quiescenceLimit: quiescenceLimit ? parseInt(quiescenceLimit) : undefined,
-      maxCapturesToCheck: maxCapturesToCheck ? parseInt(maxCapturesToCheck) : undefined
+      maxCapturesToCheck: maxCapturesToCheck ? parseInt(maxCapturesToCheck) : undefined,
+      enableOnlineGameSearch: enableOnlineGameSearch !== false
     });
 
     const searchResult = await searchEngine.search(searchFen, 0.75, history);
@@ -454,7 +495,8 @@ app.post('/api/engine/search', async (req, res) => {
         evalMode: engineEvalMode,
         timeLimitMs,
         quiescenceLimit,
-        maxCapturesToCheck
+        maxCapturesToCheck,
+        enableOnlineGameSearch: enableOnlineGameSearch !== false
       },
       bestMove: searchResult.bestMove ? {
         from: searchResult.bestMove.from,
@@ -471,7 +513,8 @@ app.post('/api/engine/search', async (req, res) => {
       nodesExplored: searchResult.nodes,
       nps: searchResult.nps,
       pv: searchResult.pv,
-      bookOpeningName: searchResult.bookOpeningName || null
+      bookOpeningName: searchResult.bookOpeningName || null,
+      onlineGameReference: searchResult.onlineGameReference || null
     });
   } catch (error: any) {
     res.status(500).json({

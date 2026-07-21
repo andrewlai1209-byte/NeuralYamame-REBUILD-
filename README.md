@@ -3,9 +3,9 @@
 
 # NeuralCore, a strong and advanced chess engine...
 
-This chess engine is vibe coded by different AIs. Including Google AI Studio、Claude、ChatGPT、OpenCode etc. 
+This chess engine is vibe coded by different AIs. Including Google AI Studio、Claude、ChatGPT、OpenCode etc.
 
-Let's see if this can actually beat Stockfish one day. Even though it's almost impossible lol. 
+Let's see if this can actually beat Stockfish one day. Even though it's almost impossible lol.
 
 ## Run Locally
 
@@ -18,10 +18,10 @@ Let's see if this can actually beat Stockfish one day. Even though it's almost i
 3. Run the app:
    `npm run dev`
 
-### Yep, everyone please try it. 
+### Yep, everyone please try it.
 
-Please start this repo and follow my account. View my profile and try more repos. 
+Please star this repo and follow my account. View my profile and try more repos.
 
-#### Have a nice day! 
+#### Have a nice day!
 
 I bet you'll like this repo!
