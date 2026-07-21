@@ -29,3 +29,7 @@ This file is a research attachment for NeuralYamame-REBUILD. It does **not** ren
 - Add an optional UCI adapter interface so NeuralYamame-REBUILD can compare its chosen move with a locally installed Stockfish binary when available.
 - Store benchmark history snapshots to track nodes-per-second and latency regressions over time.
 - Add an opening-explorer confidence threshold so online master-game moves require a minimum sample size before overriding local search.
+
+## Implemented optional comparator plan
+
+A local Stockfish comparator should remain optional. The project now expects `STOCKFISH_PATH` only when a developer wants to compare NeuralYamame-REBUILD output with a local UCI Stockfish binary. This keeps the repository free of platform-specific Stockfish binaries and preserves the NeuralYamame-REBUILD identity.

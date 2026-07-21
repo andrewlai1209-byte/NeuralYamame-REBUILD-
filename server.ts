@@ -11,6 +11,7 @@ import dotenv from 'dotenv';
 import { Chess } from 'chess.js';
 import { ChessEngine } from './src/engine';
 import { EngineConfig, TrainingGame, EloHistoryPoint, LossMetricPoint } from './src/types';
+import { getStockfishBestMove } from './src/chessEngine/uciStockfishAdapter';
 import { db } from './src/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 
@@ -461,11 +462,33 @@ app.get("/api/syzygy", async (req, res) => {
   return res.status(400).json({ error: "Too many pieces for tablebase (limit is 7)" });
 });
 
+
+app.post('/api/engine/compare-stockfish', async (req, res) => {
+  const { fen, depth, neuralYamameMove } = req.body;
+  const compareFen = fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const compareDepth = Math.min(20, Math.max(1, parseInt(depth) || 8));
+
+  const stockfish = await getStockfishBestMove(compareFen, compareDepth);
+  const stockfishMove = stockfish.stockfishMove || null;
+  const normalizedNeuralMove = neuralYamameMove || null;
+
+  res.json({
+    success: true,
+    fen: compareFen,
+    depth: compareDepth,
+    enabled: stockfish.enabled,
+    neuralYamameMove: normalizedNeuralMove,
+    stockfishMove,
+    matches: Boolean(normalizedNeuralMove && stockfishMove && normalizedNeuralMove === stockfishMove),
+    reason: stockfish.reason || null
+  });
+});
+
 /**
  * POST endpoint to perform real-time Chess Engine move search via API
  */
 app.post('/api/engine/search', async (req, res) => {
-  const { fen, depth, personality, evalMode, moveHistory, timeLimitMs, quiescenceLimit, maxCapturesToCheck, enableOnlineGameSearch } = req.body;
+  const { fen, depth, personality, evalMode, moveHistory, timeLimitMs, quiescenceLimit, maxCapturesToCheck, enableOnlineGameSearch, minOnlineGames, minWinRateEdge, maxOnlineDrawRate } = req.body;
   
   const searchFen = fen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   const searchDepth = Math.min(8, Math.max(1, parseInt(depth) || 3));
@@ -481,7 +504,10 @@ app.post('/api/engine/search', async (req, res) => {
       timeLimitMs: timeLimitMs ? parseInt(timeLimitMs) : undefined,
       quiescenceLimit: quiescenceLimit ? parseInt(quiescenceLimit) : undefined,
       maxCapturesToCheck: maxCapturesToCheck ? parseInt(maxCapturesToCheck) : undefined,
-      enableOnlineGameSearch: enableOnlineGameSearch !== false
+      enableOnlineGameSearch: enableOnlineGameSearch !== false,
+      minOnlineGames: minOnlineGames ? parseInt(minOnlineGames) : undefined,
+      minWinRateEdge: minWinRateEdge ? Number(minWinRateEdge) : undefined,
+      maxOnlineDrawRate: maxOnlineDrawRate ? Number(maxOnlineDrawRate) : undefined
     });
 
     const searchResult = await searchEngine.search(searchFen, 0.75, history);
@@ -496,7 +522,10 @@ app.post('/api/engine/search', async (req, res) => {
         timeLimitMs,
         quiescenceLimit,
         maxCapturesToCheck,
-        enableOnlineGameSearch: enableOnlineGameSearch !== false
+        enableOnlineGameSearch: enableOnlineGameSearch !== false,
+        minOnlineGames,
+        minWinRateEdge,
+        maxOnlineDrawRate
       },
       bestMove: searchResult.bestMove ? {
         from: searchResult.bestMove.from,

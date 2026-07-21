@@ -76,6 +76,8 @@ export class ChessEngine {
       whiteWins: number;
       draws: number;
       blackWins: number;
+      drawRate: number;
+      winRateEdge: number;
     };
   }> {
     const chess = new Chess(fen);
@@ -270,7 +272,11 @@ export class ChessEngine {
     try {
       const isBrowserLike = typeof window !== 'undefined' || (typeof self !== 'undefined' && !!self.location?.origin);
       const origin = isBrowserLike ? self.location.origin : undefined;
-      return await fetchOnlineGameMove(fen, fetch, origin);
+      return await fetchOnlineGameMove(fen, fetch, origin, {
+        minOnlineGames: this.config.minOnlineGames,
+        minWinRateEdge: this.config.minWinRateEdge,
+        maxDrawRate: this.config.maxOnlineDrawRate
+      });
     } catch (err) {
       console.warn('Online master-game lookup skipped:', err);
       return null;

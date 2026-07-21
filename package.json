@@ -11,7 +11,8 @@
     "lint": "tsc --noEmit",
     "test": "tsx src/chessEngine/testRunner.ts",
     "diagnose": "tsx src/chessEngine/stage4Diagnostics.ts",
-    "benchmark:stability": "tsx src/chessEngine/stabilitySpeedReport.ts"
+    "benchmark:stability": "tsx src/chessEngine/stabilitySpeedReport.ts",
+    "train:selfplay": "tsx src/chessEngine/selfPlayTrainer.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

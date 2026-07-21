@@ -41,3 +41,10 @@ The fix now uses explicit capture checks:
 ## Follow-up training path
 
 For actual long-running training, the next step should be to persist repeated benchmark/self-play snapshots and compare them over time. The current benchmark establishes the stable baseline needed before adding a heavier training loop.
+
+## Extended workflow added after the next-step plan
+
+- Online explorer moves now support trust thresholds for minimum sample size, decisive-result edge, and maximum draw rate.
+- Benchmark history can be written by running `WRITE_BENCHMARK_HISTORY=1 npm run benchmark:stability`; generated JSON files are kept in `benchmark-runs/` and ignored by git.
+- Self-play training samples can be exported with `npm run train:selfplay`; generated JSONL files are kept in `training-runs/` and ignored by git.
+- Optional Stockfish comparison is available through the UCI adapter when `STOCKFISH_PATH` points to a local Stockfish binary. If it is not configured, the adapter returns a disabled response instead of failing.

@@ -1,4 +1,6 @@
 import { performance } from 'node:perf_hooks';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { BitboardEngine } from './board';
 import { generateMoves } from './movegen';
 import { evaluate } from './evaluation';
@@ -87,6 +89,14 @@ function runPosition(position: BenchPosition, iterations = 250): BenchResult {
   };
 }
 
+function getCommitHash(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
 function main() {
   const results = positions.map((position) => runPosition(position));
   const stableCount = results.filter((result) => result.stable).length;
@@ -100,6 +110,24 @@ function main() {
     console.log(`  legalMoves=${result.legalMoves} evaluatedChildren=${result.evaluatedChildren} checksum=${result.checksum} elapsedMs=${result.elapsedMs} positionsPerSecond=${result.positionsPerSecond}`);
   }
   console.log(`SUMMARY stable=${stableCount}/${results.length} totalEvaluatedChildren=${totalEvaluatedChildren} totalElapsedMs=${totalElapsedMs} aggregatePositionsPerSecond=${aggregatePositionsPerSecond}`);
+
+  if (process.env.WRITE_BENCHMARK_HISTORY === '1') {
+    mkdirSync('benchmark-runs', { recursive: true });
+    const timestamp = new Date().toISOString();
+    const report = {
+      timestamp,
+      commit: getCommitHash(),
+      node: process.version,
+      stableCount,
+      totalPositions: results.length,
+      totalEvaluatedChildren,
+      totalElapsedMs,
+      aggregatePositionsPerSecond,
+      results
+    };
+    const fileSafeTimestamp = timestamp.replace(/[:.]/g, '-');
+    writeFileSync(`benchmark-runs/stability-${fileSafeTimestamp}.json`, `${JSON.stringify(report, null, 2)}\n`);
+  }
 
   if (stableCount !== results.length) {
     process.exit(1);

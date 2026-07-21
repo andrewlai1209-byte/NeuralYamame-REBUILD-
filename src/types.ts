@@ -36,6 +36,9 @@ export interface EngineConfig {
   quiescenceLimit?: number;     // Quiescence depth limit to prevent horizon effect
   maxCapturesToCheck?: number;  // Max captures to check in quiescence search
   enableOnlineGameSearch?: boolean; // Query public master-game databases for opening moves
+  minOnlineGames?: number;      // Minimum games before an online explorer move is trusted
+  minWinRateEdge?: number;      // Minimum decisive-result edge, 0-1
+  maxOnlineDrawRate?: number;   // Reject online moves above this draw ratio, 0-1
   difficulty?: 'beginner' | 'intermediate' | 'expert' | 'grandmaster';
   leezaThinkingThreads?: number; // Simulated GPU thinking threads for Leeza
   customWeights?: {

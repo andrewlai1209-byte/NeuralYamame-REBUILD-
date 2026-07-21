@@ -1,5 +1,17 @@
 import { Chess } from 'chess.js';
 
+export interface OnlineGameThresholds {
+  minOnlineGames?: number;
+  minWinRateEdge?: number;
+  maxDrawRate?: number;
+}
+
+export const DEFAULT_ONLINE_GAME_THRESHOLDS: Required<OnlineGameThresholds> = {
+  minOnlineGames: 25,
+  minWinRateEdge: 0,
+  maxDrawRate: 0.95
+};
+
 export interface OnlineGameMoveResult {
   bestMove: {
     san: string;
@@ -22,6 +34,8 @@ export interface OnlineGameMoveResult {
     whiteWins: number;
     draws: number;
     blackWins: number;
+    drawRate: number;
+    winRateEdge: number;
   };
 }
 
@@ -32,7 +46,7 @@ export function buildOnlineGameSearchUrl(fen: string, origin?: string): string {
   return `https://explorer.lichess.ovh/masters?${params.toString()}`;
 }
 
-export function mapExplorerDataToMove(fen: string, data: any): OnlineGameMoveResult | null {
+export function mapExplorerDataToMove(fen: string, data: any, thresholds: OnlineGameThresholds = {}): OnlineGameMoveResult | null {
   const candidate = Array.isArray(data?.moves) ? data.moves[0] : null;
   if (!candidate?.san) return null;
 
@@ -45,6 +59,13 @@ export function mapExplorerDataToMove(fen: string, data: any): OnlineGameMoveRes
   const blackWins = Number(candidate.black || 0);
   const games = whiteWins + draws + blackWins;
   if (games <= 0) return null;
+
+  const mergedThresholds = { ...DEFAULT_ONLINE_GAME_THRESHOLDS, ...thresholds };
+  const drawRate = draws / games;
+  const winRateEdge = Math.abs(whiteWins - blackWins) / games;
+  if (games < mergedThresholds.minOnlineGames) return null;
+  if (winRateEdge < mergedThresholds.minWinRateEdge) return null;
+  if (drawRate > mergedThresholds.maxDrawRate) return null;
 
   return {
     bestMove: {
@@ -67,13 +88,15 @@ export function mapExplorerDataToMove(fen: string, data: any): OnlineGameMoveRes
       games,
       whiteWins,
       draws,
-      blackWins
+      blackWins,
+      drawRate,
+      winRateEdge
     }
   };
 }
 
-export async function fetchOnlineGameMove(fen: string, fetchImpl: typeof fetch, origin?: string): Promise<OnlineGameMoveResult | null> {
+export async function fetchOnlineGameMove(fen: string, fetchImpl: typeof fetch, origin?: string, thresholds: OnlineGameThresholds = {}): Promise<OnlineGameMoveResult | null> {
   const response = await fetchImpl(buildOnlineGameSearchUrl(fen, origin), { headers: { Accept: 'application/json' } });
   if (!response.ok) return null;
-  return mapExplorerDataToMove(fen, await response.json());
+  return mapExplorerDataToMove(fen, await response.json(), thresholds);
 }

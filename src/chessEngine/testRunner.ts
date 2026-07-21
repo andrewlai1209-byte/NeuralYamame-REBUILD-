@@ -8,6 +8,7 @@ import { TranspositionTable } from './tt';
 import { evaluate } from './evaluation';
 import { Chess } from 'chess.js';
 import { mapExplorerDataToMove } from '../lib/onlineGameExplorer';
+import { parseBestMove } from './uciStockfishAdapter';
 
 async function runTest(name: string, fn: () => void | Promise<void>) {
   try {
@@ -133,6 +134,14 @@ await runTest("Online Master Game Search Integration", () => {
   if (result.onlineGameReference.games !== 250) {
     throw new Error('Online explorer game statistics were not attached');
   }
+
+  const rejectedLowSample = mapExplorerDataToMove('rnbqkbnr/pppppppp/8/8/8/P7/1PPPPPPP/RNBQKBNR b KQkq - 0 1', {
+    source: 'Mock Masters Explorer',
+    moves: [{ san: 'e5', white: 1, draws: 0, black: 1 }]
+  }, { minOnlineGames: 10 });
+  if (rejectedLowSample !== null) {
+    throw new Error('Online explorer accepted a low-sample move below threshold');
+  }
 });
 
 
@@ -154,7 +163,16 @@ await runTest("Search Completes With Quiet Quiescence Moves", () => {
   }
 });
 
-// 7. NNUE & Accumulator Updates
+
+// 7. Stockfish UCI parser
+await runTest("Stockfish UCI Bestmove Parser", () => {
+  const bestMove = parseBestMove('info depth 8 score cp 20 pv e2e4 e7e5\nbestmove e2e4 ponder e7e5');
+  if (bestMove !== 'e2e4') {
+    throw new Error(`Failed to parse Stockfish bestmove: ${bestMove}`);
+  }
+});
+
+// 8. NNUE & Accumulator Updates
 await runTest("NNUE Incremental Accumulator Flow", () => {
   const board = new BitboardEngine();
   const accum = nnueEvaluator.computeAccumulators(board);
