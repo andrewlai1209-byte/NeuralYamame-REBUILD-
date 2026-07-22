@@ -221,7 +221,7 @@ export class ChessEngineSearch {
         } else {
             let d = depth - 1;
             // LMR condition
-            if (depth >= 3 && i >= 3 && !m.captured && m.flags !== 2 && !board.inCheck(board.sideToMove)) {
+            if (depth >= 3 && i >= 3 && m.captured === -1 && m.flags !== 2 && !board.inCheck(board.sideToMove)) {
                 d--;
             }
             // Null window search
@@ -240,7 +240,7 @@ export class ChessEngineSearch {
         }
         alpha = Math.max(alpha, ev);
         if (beta <= alpha) {
-          if (!m.captured) {
+          if (m.captured === -1) {
             if (!this.killerMoves[depth]) this.killerMoves[depth] = [];
             this.killerMoves[depth].unshift(m);
             if (this.killerMoves[depth].length > 2) this.killerMoves[depth].pop();
@@ -271,7 +271,7 @@ export class ChessEngineSearch {
             ev = this.alphaBeta(board, depth - 1, ply + 1, alpha, beta, true, evalFunc, true, m).score;
         } else {
             let d = depth - 1;
-            if (depth >= 3 && i >= 3 && !m.captured && m.flags !== 2 && !board.inCheck(board.sideToMove)) {
+            if (depth >= 3 && i >= 3 && m.captured === -1 && m.flags !== 2 && !board.inCheck(board.sideToMove)) {
                 d--;
             }
             ev = this.alphaBeta(board, d, ply + 1, beta - 1, beta, true, evalFunc, true, m).score;
@@ -288,7 +288,7 @@ export class ChessEngineSearch {
         }
         beta = Math.min(beta, ev);
         if (beta <= alpha) {
-          if (!m.captured) {
+          if (m.captured === -1) {
             if (!this.killerMoves[depth]) this.killerMoves[depth] = [];
             this.killerMoves[depth].unshift(m);
             if (this.killerMoves[depth].length > 2) this.killerMoves[depth].pop();
@@ -330,13 +330,13 @@ export class ChessEngineSearch {
 
     const rawMoves = generateMoves(board);
     // If in check, we must search all moves to find an escape. Otherwise, only search captures.
-    const movesToTry = inCheck ? rawMoves : rawMoves.filter(m => m.captured);
+    const movesToTry = inCheck ? rawMoves : rawMoves.filter(m => m.captured !== -1 || m.flags === 1);
     
     // Sort moves to try by MVV-LVA logic internally
     movesToTry.sort((a, b) => {
-      const pVals: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-      const valA = a.captured ? ((pVals[a.captured] || 0) * 10 - (pVals[a.piece] || 0)) : 0;
-      const valB = b.captured ? ((pVals[b.captured] || 0) * 10 - (pVals[b.piece] || 0)) : 0;
+      const pieceValues = [1, 3, 3, 5, 9, 0];
+      const valA = a.captured !== -1 ? (pieceValues[a.captured] * 10 - pieceValues[a.piece]) : 0;
+      const valB = b.captured !== -1 ? (pieceValues[b.captured] * 10 - pieceValues[b.piece]) : 0;
       return valB - valA;
     });
 

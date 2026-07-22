@@ -93,8 +93,7 @@ export class BitboardEngine {
     this.fullMoveNumber = parseInt(parts[5] || '1', 10);
   }
 
-  // Very basic pseudo-legal move generation
-  // For production, needs pins, checks, castling blocks, etc.
+  // Generate a Zobrist hash for the current board state.
   public generateHash(): bigint {
     let h = 0n;
     for (let c = 0; c < 2; c++) {
@@ -194,22 +193,22 @@ export class BitboardEngine {
 
     // Handle castling rook moves
     if (m.flags === 2) {
-      if (m.to === 62) { // wk
-        this.pieceBB[color][PIECE_ROOK] ^= (1n << 63n) | (1n << 61n);
-        this.colorBB[color] ^= (1n << 63n) | (1n << 61n);
-        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][63] ^ ZOBRIST_PIECE[color][PIECE_ROOK][61];
-      } else if (m.to === 58) { // wq
-        this.pieceBB[color][PIECE_ROOK] ^= (1n << 56n) | (1n << 59n);
-        this.colorBB[color] ^= (1n << 56n) | (1n << 59n);
-        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][56] ^ ZOBRIST_PIECE[color][PIECE_ROOK][59];
-      } else if (m.to === 6) { // bk
+      if (m.to === 6) { // white king side
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 7n) | (1n << 5n);
         this.colorBB[color] ^= (1n << 7n) | (1n << 5n);
         this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][7] ^ ZOBRIST_PIECE[color][PIECE_ROOK][5];
-      } else if (m.to === 2) { // bq
+      } else if (m.to === 2) { // white queen side
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 0n) | (1n << 3n);
         this.colorBB[color] ^= (1n << 0n) | (1n << 3n);
         this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][0] ^ ZOBRIST_PIECE[color][PIECE_ROOK][3];
+      } else if (m.to === 62) { // black king side
+        this.pieceBB[color][PIECE_ROOK] ^= (1n << 63n) | (1n << 61n);
+        this.colorBB[color] ^= (1n << 63n) | (1n << 61n);
+        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][63] ^ ZOBRIST_PIECE[color][PIECE_ROOK][61];
+      } else if (m.to === 58) { // black queen side
+        this.pieceBB[color][PIECE_ROOK] ^= (1n << 56n) | (1n << 59n);
+        this.colorBB[color] ^= (1n << 56n) | (1n << 59n);
+        this.hashKey ^= ZOBRIST_PIECE[color][PIECE_ROOK][56] ^ ZOBRIST_PIECE[color][PIECE_ROOK][59];
       }
     }
 
@@ -220,10 +219,10 @@ export class BitboardEngine {
       if (color === COLOR_WHITE) this.castlingRights &= ~(1 | 2);
       else this.castlingRights &= ~(4 | 8);
     }
-    if (m.from === 63 || m.to === 63) this.castlingRights &= ~1;
-    if (m.from === 56 || m.to === 56) this.castlingRights &= ~2;
-    if (m.from === 7 || m.to === 7) this.castlingRights &= ~4;
-    if (m.from === 0 || m.to === 0) this.castlingRights &= ~8;
+    if (m.from === 7 || m.to === 7) this.castlingRights &= ~1;
+    if (m.from === 0 || m.to === 0) this.castlingRights &= ~2;
+    if (m.from === 63 || m.to === 63) this.castlingRights &= ~4;
+    if (m.from === 56 || m.to === 56) this.castlingRights &= ~8;
 
     this.hashKey ^= ZOBRIST_CASTLING[this.castlingRights];
 
@@ -276,18 +275,18 @@ export class BitboardEngine {
     }
 
     if (m.flags === 2) {
-      if (m.to === 62) {
-        this.pieceBB[color][PIECE_ROOK] ^= (1n << 63n) | (1n << 61n);
-        this.colorBB[color] ^= (1n << 63n) | (1n << 61n);
-      } else if (m.to === 58) {
-        this.pieceBB[color][PIECE_ROOK] ^= (1n << 56n) | (1n << 59n);
-        this.colorBB[color] ^= (1n << 56n) | (1n << 59n);
-      } else if (m.to === 6) {
+      if (m.to === 6) {
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 7n) | (1n << 5n);
         this.colorBB[color] ^= (1n << 7n) | (1n << 5n);
       } else if (m.to === 2) {
         this.pieceBB[color][PIECE_ROOK] ^= (1n << 0n) | (1n << 3n);
         this.colorBB[color] ^= (1n << 0n) | (1n << 3n);
+      } else if (m.to === 62) {
+        this.pieceBB[color][PIECE_ROOK] ^= (1n << 63n) | (1n << 61n);
+        this.colorBB[color] ^= (1n << 63n) | (1n << 61n);
+      } else if (m.to === 58) {
+        this.pieceBB[color][PIECE_ROOK] ^= (1n << 56n) | (1n << 59n);
+        this.colorBB[color] ^= (1n << 56n) | (1n << 59n);
       }
     }
 
